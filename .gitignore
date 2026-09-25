@@ -54,3 +54,8 @@ coverage/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Local Specs & Task Tracking (keep local only)
+INTELLISAVE_BUILD_SPEC.md
+TASKS.md
+
