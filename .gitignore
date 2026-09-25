@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+
+# Build outputs & caches
+dist/
+build/
+.turbo/
+.cache/
+*.tsbuildinfo
+.eslintcache
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Database
+prisma/migrations/**/migration_lock.toml
+*.sqlite
+*.sqlite-journal
+*.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Testing & Coverage
+coverage/
+.nyc_output/
+
+# IDE & Editor
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# Operating System
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
