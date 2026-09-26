@@ -38,8 +38,8 @@ services:
 
   web:
     build:
-      context: .
-      dockerfile: apps/web/Dockerfile
+      context: ./apps/web
+      dockerfile: Dockerfile
     container_name: lumora-web
     restart: unless-stopped
     depends_on:

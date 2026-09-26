@@ -4,19 +4,17 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
-COPY packages ./packages
-COPY apps/web ./apps/web
+COPY package.json tsconfig.json vite.config.ts index.html postcss.config.js tailwind.config.js ./
+COPY src ./src
 
-RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @intellisave/shared build
-RUN pnpm --filter @intellisave/web build
+RUN pnpm install
+RUN pnpm run build
 
 # Production Nginx Web Server
 FROM nginx:alpine
 
-COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
-COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 

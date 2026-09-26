@@ -1,3 +1,4 @@
+import '../config/env.js';
 import { simulationState } from '../modules/simulation/simulation-state.js';
 import { simulationClock } from '../modules/simulation/simulation-clock.js';
 import { environmentModel } from '../modules/simulation/environment-model.js';

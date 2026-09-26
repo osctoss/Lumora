@@ -1,0 +1,496 @@
+// IntelliSave — Prisma Schema (PostgreSQL)
+// Matches Section 25 of IntelliSave Build Specification
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────
+
+enum RoomStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+enum OccupancyState {
+  OCCUPIED
+  VACANCY_PENDING
+  VACANT
+}
+
+enum SensorType {
+  OCCUPANCY_PIR
+  OCCUPANCY_MMWAVE
+  TEMPERATURE
+  HUMIDITY
+  CO2
+  AMBIENT_LIGHT
+  ENERGY_METER
+}
+
+enum DeviceType {
+  AC
+  FAN
+  LED
+  FREEZER
+  LAPTOP_PORT
+  TUBE_LIGHT
+  DESKTOP
+  PROJECTOR
+  GENERIC
+}
+
+enum DeviceState {
+  OFF
+  ON
+  STANDBY
+  FAULT
+  COMPRESSOR_ON
+  COMPRESSOR_OFF
+  SPEED_1
+  SPEED_2
+  SPEED_3
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertType {
+  VACANCY_ENERGY_WASTE
+  ENERGY_ANOMALY
+  UNACCOUNTED_CONSUMPTION
+  COMFORT_RISK
+  CO2_HIGH
+}
+
+enum RecommendationStatus {
+  PENDING
+  APPLIED
+  DISMISSED
+  EXPIRED
+}
+
+enum EventSource {
+  USER
+  SIMULATION
+  AUTOMATION
+  SYSTEM
+  AI
+}
+
+enum SavingsSessionStatus {
+  OPEN
+  CLOSED
+  INTERRUPTED
+  CANCELLED
+}
+
+enum CalibrationStatus {
+  NOT_CALIBRATED
+  IN_PROGRESS
+  CALIBRATED
+  FAILED
+}
+
+// ─── Models ─────────────────────────────────────────────────
+
+model Building {
+  id                        String   @id @default(uuid())
+  name                      String
+  address                   String?
+  electricityTariffInrPerKwh Float    @default(8.0)
+  co2FactorKgPerKwh         Float    @default(0.82)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  rooms Room[]
+}
+
+model Room {
+  id                      String         @id @default(uuid())
+  buildingId              String
+  name                    String
+  floor                   Int            @default(1)
+  capacity                Int            @default(30)
+  areaSqMeters            Float          @default(45.0)
+  baselineExpectedPowerW  Float          @default(1800.0)
+  status                  RoomStatus     @default(ACTIVE)
+  powerSupplyOn           Boolean        @default(true)
+  currentOccupancyState   OccupancyState @default(VACANT)
+  vacancyTimerStartedAt   DateTime?
+  currentTemperature      Float          @default(24.0)
+  currentHumidity         Float          @default(50.0)
+  currentCo2              Float          @default(450.0)
+  currentLux              Float          @default(500.0)
+  currentComfortScore     Float          @default(95.0)
+  totalActivePowerW       Float          @default(0.0)
+  totalExpectedPowerW     Float          @default(0.0)
+  unaccountedPowerW       Float          @default(0.0)
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  building            Building             @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  settings            RoomSettings?
+  sensors             Sensor[]
+  devices             Device[]
+  people              Person[]
+  telemetry           RoomTelemetry[]
+  meterReadings       MeterReading[]
+  occupancyEvents     OccupancyEvent[]
+  energyBaselines     EnergyBaseline[]
+  alerts              Alert[]
+  recommendations     Recommendation[]
+  actionEvents        ActionEvent[]
+  savingsSessions     SavingsSession[]
+  calibrationSessions CalibrationSession[]
+}
+
+model RoomSettings {
+  id                          String   @id @default(uuid())
+  roomId                      String   @unique
+  targetTempC                 Float    @default(24.0)
+  minTempC                    Float    @default(21.0)
+  maxTempC                    Float    @default(26.0)
+  targetHumidityPct           Float    @default(50.0)
+  minHumidityPct              Float    @default(30.0)
+  maxHumidityPct              Float    @default(60.0)
+  targetLux                   Float    @default(500.0)
+  co2WarningThreshold         Float    @default(1000.0)
+  co2CriticalThreshold        Float    @default(1500.0)
+  vacancyGracePeriodSec       Int      @default(60)
+  vacancyConfirmationTimeSec  Int      @default(300)
+  preCoolTimeMinutes          Int      @default(15)
+  autoControlAc               Boolean  @default(true)
+  autoControlLights           Boolean  @default(true)
+  autoControlFans             Boolean  @default(true)
+  maxUnaccountedPowerW        Float    @default(50.0)
+  unregisteredLoadGraceSec    Int      @default(60)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model Sensor {
+  id                String     @id @default(uuid())
+  roomId            String
+  name              String
+  type              SensorType
+  unit              String
+  sampleIntervalSec Int        @default(5)
+  lastValue         Float?
+  lastUpdatedAt     DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  room     Room            @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  readings SensorReading[]
+}
+
+model SensorReading {
+  id        String   @id @default(uuid())
+  sensorId  String
+  timestamp DateTime @default(now())
+  value     Float
+  rawData   Json?
+
+  sensor Sensor @relation(fields: [sensorId], references: [id], onDelete: Cascade)
+
+  @@index([sensorId, timestamp])
+}
+
+model RoomTelemetry {
+  id                  String   @id @default(uuid())
+  roomId              String
+  timestamp           DateTime @default(now())
+  temperature         Float
+  humidity            Float
+  co2                 Float
+  lux                 Float
+  occupancyDetected   Boolean
+  peopleCount         Int
+  totalActivePowerW   Float
+  totalExpectedPowerW Float
+  unaccountedPowerW   Float
+  comfortScore        Float
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, timestamp])
+}
+
+model DeviceCatalog {
+  id               String     @id @default(uuid())
+  type             DeviceType
+  brand            String
+  model            String
+  ratedPowerW      Float
+  standbyPowerW    Float      @default(0.0)
+  voltageV         Float      @default(230.0)
+  minRunTimeSec    Int        @default(180)
+  minRestTimeSec   Int        @default(180)
+  maxDailyRunHours Float      @default(12.0)
+  isControllable   Boolean    @default(true)
+  isProtected      Boolean    @default(false)
+  defaultPriority  Int        @default(1)
+
+  devices Device[]
+}
+
+model Device {
+  id                  String      @id @default(uuid())
+  roomId              String
+  catalogId           String?
+  name                String
+  type                DeviceType
+  ratedPowerW         Float
+  standbyPowerW       Float       @default(0.0)
+  currentState        DeviceState @default(OFF)
+  isPoweredOn         Boolean     @default(false)
+  currentPowerW       Float       @default(0.0)
+  cumulativeEnergyKwh Float       @default(0.0)
+  isProtected         Boolean     @default(false)
+  isControllable      Boolean     @default(true)
+  priority            Int         @default(1)
+  lastStateChange     DateTime    @default(now())
+
+  room             Room                    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  catalog          DeviceCatalog?          @relation(fields: [catalogId], references: [id])
+  policy           DevicePolicy?
+  stateEvents      DeviceStateEvent[]
+  operatingPeriods DeviceOperatingPeriod[]
+}
+
+model DevicePolicy {
+  id                String   @id @default(uuid())
+  deviceId          String   @unique
+  turnOffOnVacancy  Boolean  @default(true)
+  allowPreCool      Boolean  @default(false)
+  priority          Int      @default(1)
+  tempThresholdC    Float?
+  luxThreshold      Float?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model DeviceStateEvent {
+  id            String      @id @default(uuid())
+  deviceId      String
+  previousState DeviceState
+  newState      DeviceState
+  powerW        Float
+  source        EventSource @default(SYSTEM)
+  reason        String?
+  timestamp     DateTime    @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, timestamp])
+}
+
+model DeviceOperatingPeriod {
+  id          String    @id @default(uuid())
+  deviceId    String
+  startedAt   DateTime
+  endedAt     DateTime?
+  energyKwh   Float     @default(0.0)
+  costInr     Float     @default(0.0)
+  emissionsKg Float     @default(0.0)
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model Person {
+  id                      String   @id @default(uuid())
+  roomId                  String
+  displayName             String
+  heatGainW               Float    @default(100.0)
+  co2GenerationPpmPerHour Float    @default(38000.0)
+  active                  Boolean  @default(true)
+  arrivedAt               DateTime @default(now())
+  leftAt                  DateTime?
+
+  room            Room             @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  occupancyEvents OccupancyEvent[]
+}
+
+model OccupancyEvent {
+  id             String         @id @default(uuid())
+  roomId         String
+  personId       String?
+  eventType      String
+  timestamp      DateTime       @default(now())
+  occupancyCount Int
+  state          OccupancyState
+
+  room   Room    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  person Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  @@index([roomId, timestamp])
+}
+
+model EnergyBaseline {
+  id                String @id @default(uuid())
+  roomId            String
+  hourOfDay         Int
+  dayOfWeek         Int
+  baselinePowerW    Float
+  expectedEnergyKwh Float
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, hourOfDay, dayOfWeek])
+}
+
+model Alert {
+  id         String        @id @default(uuid())
+  roomId     String
+  alertType  AlertType
+  severity   AlertSeverity @default(MEDIUM)
+  message    String
+  details    Json?
+  isResolved Boolean       @default(false)
+  resolvedAt DateTime?
+  createdAt  DateTime      @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+}
+
+model Recommendation {
+  id                 String               @id @default(uuid())
+  roomId             String
+  alertId            String?
+  title              String
+  description        String
+  potentialSavingsKwh Float               @default(0.0)
+  potentialSavingsInr Float               @default(0.0)
+  status             RecommendationStatus @default(PENDING)
+  appliedAt          DateTime?
+  createdAt          DateTime             @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model ActionEvent {
+  id          String      @id @default(uuid())
+  roomId      String
+  deviceId    String?
+  actionType  String
+  source      EventSource
+  reason      String
+  timestamp   DateTime    @default(now())
+  beforeState String?
+  afterState  String?
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, timestamp])
+}
+
+model MeterReading {
+  id              String   @id @default(uuid())
+  roomId          String
+  intervalStart   DateTime
+  intervalEnd     DateTime
+  energyKwh       Float
+  cumulativeKwh   Float    @default(0.0)
+  averagePowerW   Float    @default(0.0)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, intervalStart])
+}
+
+model SavingsSession {
+  id                      String               @id @default(uuid())
+  roomId                  String
+  status                  SavingsSessionStatus @default(OPEN)
+  triggerType             String
+  startedAt               DateTime             @default(now())
+  endedAt                 DateTime?
+  durationMinutes         Float                @default(0.0)
+  energySavedKwh          Float                @default(0.0)
+  costSavedInr            Float                @default(0.0)
+  co2SavedKg              Float                @default(0.0)
+  baselinePowerW          Float                @default(0.0)
+  actualPowerW            Float                @default(0.0)
+  counterfactualEnergyKwh Float                @default(0.0)
+  actualEnergyKwh         Float                @default(0.0)
+
+  room   Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  events SavingsEvent[]
+
+  @@index([roomId, startedAt])
+}
+
+model SavingsEvent {
+  id                      String   @id @default(uuid())
+  sessionId               String
+  timestamp               DateTime @default(now())
+  instantaneousSavingsW   Float
+  cumulativeSavingsKwh    Float
+  cumulativeCostInr       Float
+
+  session SavingsSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model CalibrationSession {
+  id             String            @id @default(uuid())
+  roomId         String
+  status         CalibrationStatus @default(NOT_CALIBRATED)
+  startedAt      DateTime          @default(now())
+  completedAt    DateTime?
+  baselinePowerW Float?
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model SimulationRun {
+  id              String    @id @default(uuid())
+  status          String    @default("RUNNING")
+  speedMultiplier Float     @default(1.0)
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  ticksElapsed    Int       @default(0)
+}
+
+model SimulationScenarioEvent {
+  id           String    @id @default(uuid())
+  scenario     String
+  activatedAt  DateTime  @default(now())
+  deactivatedAt DateTime?
+  parameters   Json?
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
+model EventLog {
+  id        String      @id @default(uuid())
+  eventId   String      @unique
+  eventType String
+  source    EventSource
+  timestamp DateTime    @default(now())
+  payload   Json?
+
+  @@index([timestamp])
+}

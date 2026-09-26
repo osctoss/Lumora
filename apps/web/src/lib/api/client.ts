@@ -1,12 +1,16 @@
-const API_BASE = '/api';
+const envApiUrl = import.meta.env.VITE_API_URL;
+const API_BASE = envApiUrl
+  ? `${envApiUrl.replace(/\/+$/, '')}/api`
+  : '/api';
 
 export async function apiRequest<T = any>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<T> {
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const url = endpoint.startsWith('http')
     ? endpoint
-    : `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+    : `${API_BASE}${cleanEndpoint}`;
 
   const method = (options.method || 'GET').toUpperCase();
   const hasBody = options.body !== undefined && options.body !== null;
