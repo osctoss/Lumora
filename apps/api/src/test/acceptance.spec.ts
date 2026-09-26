@@ -283,6 +283,42 @@ async function runAcceptanceTests() {
     }
     const rateTwo = (simulationState.getRoom(roomId)!.state.co2Ppm - beforeTwo) / 5;
     assert(rateTwo > (co2One - co2Zero) / 10, 'With 2 occupants, CO2 rise rate is significantly higher', `rate=${rateTwo}`);
+
+    // Verify welcome policy (§17.4): when person enters, LED and Fan turn ON automatically
+    simulationState.addDevice(roomId, {
+      id: 'occ-led-1',
+      name: 'Occupancy LED',
+      type: 'LED',
+      ratedPowerW: 36,
+      standbyPowerW: 0,
+      currentState: 'OFF',
+      isPoweredOn: false,
+      currentPowerW: 0,
+      isProtected: false,
+      isControllable: true,
+      priority: 1,
+    });
+    simulationState.addDevice(roomId, {
+      id: 'occ-fan-1',
+      name: 'Occupancy Fan',
+      type: 'FAN',
+      ratedPowerW: 60,
+      standbyPowerW: 0,
+      currentState: 'OFF',
+      isPoweredOn: false,
+      currentPowerW: 0,
+      isProtected: false,
+      isControllable: true,
+      priority: 1,
+    });
+
+    simulationState.updateRoomState(roomId, { occupancyCount: 2, occupancyState: 'OCCUPIED' });
+    policyEngine.evaluateRoomPolicies(roomId);
+
+    const occLed = simulationState.getDevice(roomId, 'occ-led-1')!;
+    const occFan = simulationState.getDevice(roomId, 'occ-fan-1')!;
+    assert(occLed.currentState === 'ON' && occLed.isPoweredOn === true, 'Person entry: LED turned ON automatically upon room occupancy');
+    assert(occFan.currentState === 'ON' && occFan.isPoweredOn === true, 'Person entry: Fan turned ON automatically upon room occupancy');
   }
 
   // ─── Test 6: Vacancy Savings Acceptance Scenario (§80) ────────

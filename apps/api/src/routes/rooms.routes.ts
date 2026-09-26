@@ -1,5 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { simulationState } from '../modules/simulation/simulation-state.js';
+import { simulationClock } from '../modules/simulation/simulation-clock.js';
+import { policyEngine } from '../modules/automation/policy-engine.js';
+import { savingsEngine } from '../modules/savings/savings-engine.js';
 import { meterEngine } from '../modules/energy/meter-engine.js';
 import { eventLogService } from '../modules/events/event-log.service.js';
 import { alertService } from '../modules/analytics/alert.service.js';
@@ -262,6 +265,8 @@ export async function roomRoutes(app: FastifyInstance): Promise<void> {
         co2GenerationPpmPerHour: 38000,
       };
 
+      const isFirstOccupant = room.state.occupancyCount === 0;
+
       simulationState.addPerson(room.roomId, person);
 
       const newCount = simulationState.getPeople(room.roomId).filter(p => p.active).length;
@@ -273,6 +278,21 @@ export async function roomRoutes(app: FastifyInstance): Promise<void> {
         vacancyStartedAt: null,
         peoplePresent: simulationState.getPeople(room.roomId).filter(p => p.active).map(p => p.id),
       });
+
+      // If room transitioned from vacant to occupied, reset manual overrides so welcome policies activate
+      if (isFirstOccupant) {
+        for (const dev of simulationState.getDevices(room.roomId)) {
+          if (dev.manualOverride) {
+            simulationState.updateDevice(room.roomId, dev.id, { manualOverride: false });
+          }
+        }
+      }
+
+      // Close active counterfactual savings session as occupant returned
+      savingsEngine.closeSession(room.roomId);
+
+      // Immediately evaluate welcome policies so light and fan turn ON right away (§17.4)
+      policyEngine.evaluateRoomPolicies(room.roomId);
 
       publish(EventTypes.PERSON_ADDED, room.roomId, {
         personId,
@@ -345,10 +365,13 @@ export async function roomRoutes(app: FastifyInstance): Promise<void> {
       };
       if (newCount === 0) {
         newState.occupancyState = 'VACANCY_PENDING';
-        newState.vacancyStartedAt = new Date().toISOString();
+        newState.vacancyStartedAt = simulationClock.getSimulatedTime().toISOString();
       }
 
       simulationState.updateRoomState(room.roomId, newState);
+
+      // Immediately evaluate vacancy policies so lights/fans shut off right away
+      policyEngine.evaluateRoomPolicies(room.roomId);
 
       publish(EventTypes.PERSON_REMOVED, room.roomId, {
         personId: request.params.personId,

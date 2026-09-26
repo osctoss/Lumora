@@ -4,6 +4,8 @@ import { publish } from '../../websocket/event-publisher.js';
 import { EventTypes } from '@intellisave/shared';
 import { logger } from '../../utils/logger.js';
 
+import { roundTo } from '../../utils/math.js';
+
 export interface PolicyActionResult {
   deviceId: string;
   action: 'TURN_OFF' | 'TURN_ON' | 'COMPRESSOR_OFF' | 'ADJUST_SPEED';
@@ -43,8 +45,133 @@ export class PolicyEngine {
     const devices = simulationState.getDevices(roomId);
     const now = currentSimTime || simulationClock.getSimulatedTime();
 
+    // If room power supply is OFF, devices cannot operate
+    if (!state.powerSupplyOn) {
+      return [];
+    }
+
+    // ─── Occupancy Welcome Automation (INTELLISAVE_BUILD_SPEC §17.4) ───
+    if (state.occupancyCount > 0) {
+      for (const device of devices) {
+        if (device.manualOverride) continue; // Respect manual overrides
+
+        // 1. LED / Lighting — turn ON automatically upon occupancy
+        if (device.type === 'LED' || device.type === 'TUBE_LIGHT') {
+          if (!device.isPoweredOn || device.currentState === 'OFF') {
+            const previousState = device.currentState;
+            simulationState.updateDevice(roomId, device.id, {
+              currentState: 'ON',
+              isPoweredOn: true,
+              currentPowerW: device.ratedPowerW,
+            });
+
+            actions.push({
+              deviceId: device.id,
+              action: 'TURN_ON',
+              reason: `Occupancy detected: ${device.name} turned ON automatically`,
+              powerSavedW: 0,
+            });
+
+            publish(EventTypes.DEVICE_STATE_CHANGED, roomId, {
+              deviceId: device.id,
+              previousState,
+              newState: 'ON',
+              source: 'AUTOMATION',
+              reason: 'Occupancy welcome policy: lighting turned ON',
+              powerW: device.ratedPowerW,
+            });
+
+            publish(EventTypes.DEVICE_TURNED_ON, roomId, {
+              deviceId: device.id,
+              source: 'AUTOMATION',
+            });
+
+            this.logActionEvent(roomId, device.id, 'TURN_ON', previousState, 'ON', 'Occupancy welcome lighting');
+          }
+        }
+
+        // 2. Fan — turn ON automatically upon occupancy
+        else if (device.type === 'FAN') {
+          if (!device.isPoweredOn || device.currentState === 'OFF') {
+            const previousState = device.currentState;
+            const fanPower = roundTo(device.ratedPowerW * 0.75, 1);
+
+            simulationState.updateDevice(roomId, device.id, {
+              currentState: 'ON',
+              isPoweredOn: true,
+              currentPowerW: fanPower,
+            });
+
+            actions.push({
+              deviceId: device.id,
+              action: 'TURN_ON',
+              reason: `Occupancy detected: ${device.name} turned ON automatically`,
+              powerSavedW: 0,
+            });
+
+            publish(EventTypes.DEVICE_STATE_CHANGED, roomId, {
+              deviceId: device.id,
+              previousState,
+              newState: 'ON',
+              source: 'AUTOMATION',
+              reason: 'Occupancy welcome policy: fan turned ON',
+              powerW: fanPower,
+            });
+
+            publish(EventTypes.DEVICE_TURNED_ON, roomId, {
+              deviceId: device.id,
+              source: 'AUTOMATION',
+            });
+
+            this.logActionEvent(roomId, device.id, 'TURN_ON', previousState, 'ON', 'Occupancy welcome fan');
+          }
+        }
+
+        // 3. AC — start cooling upon occupancy if room temp exceeds setpoint
+        else if (device.type === 'AC') {
+          const setpoint = state.acSetpointC || 24.0;
+          if ((!device.isPoweredOn || device.currentState === 'OFF') && state.temperatureC > setpoint) {
+            const previousState = device.currentState;
+            simulationState.updateDevice(roomId, device.id, {
+              currentState: 'COMPRESSOR_ON',
+              isPoweredOn: true,
+              currentPowerW: device.ratedPowerW,
+            });
+
+            actions.push({
+              deviceId: device.id,
+              action: 'TURN_ON',
+              reason: `Occupancy detected: ${device.name} started cooling (Room: ${state.temperatureC.toFixed(1)}°C > Setpoint: ${setpoint}°C)`,
+              powerSavedW: 0,
+            });
+
+            publish(EventTypes.DEVICE_STATE_CHANGED, roomId, {
+              deviceId: device.id,
+              previousState,
+              newState: 'COMPRESSOR_ON',
+              source: 'AUTOMATION',
+              reason: 'Occupancy welcome policy: AC started cooling',
+              powerW: device.ratedPowerW,
+            });
+
+            publish(EventTypes.DEVICE_TURNED_ON, roomId, {
+              deviceId: device.id,
+              source: 'AUTOMATION',
+            });
+
+            publish(EventTypes.AC_COMPRESSOR_ON, roomId, {
+              deviceId: device.id,
+              source: 'AUTOMATION',
+            });
+
+            this.logActionEvent(roomId, device.id, 'TURN_ON', previousState, 'COMPRESSOR_ON', 'Occupancy climate control');
+          }
+        }
+      }
+    }
+
     // ─── Vacancy Automation (Correction §42) ──────────────────────
-    if (state.occupancyCount === 0 && state.vacancyStartedAt) {
+    else if (state.occupancyCount === 0 && state.vacancyStartedAt) {
       const vacancyStart = new Date(state.vacancyStartedAt);
       const vacancyElapsedSec = Math.max(0, (now.getTime() - vacancyStart.getTime()) / 1000);
       const vacancyElapsedMin = vacancyElapsedSec / 60;
