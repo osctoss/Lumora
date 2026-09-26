@@ -13,7 +13,7 @@
     "db:generate": "pnpm --filter @intellisave/api prisma generate",
     "db:migrate": "pnpm --filter @intellisave/api prisma migrate dev",
     "db:push": "pnpm --filter @intellisave/api prisma db push",
-    "db:seed": "pnpm --filter @intellisave/api prisma db seed",
+    "db:seed": "pnpm --filter @intellisave/api exec tsx ../../prisma/seed.ts",
     "db:studio": "pnpm --filter @intellisave/api prisma studio",
     "db:reset": "pnpm --filter @intellisave/api prisma migrate reset",
     "clean": "pnpm --recursive exec -- rm -rf node_modules dist .turbo",
