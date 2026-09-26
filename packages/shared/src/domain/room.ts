@@ -4,6 +4,7 @@ export type OccupancyState = 'OCCUPIED' | 'VACANCY_PENDING' | 'VACANT';
 
 export interface RoomSimulationState {
   roomId: string;
+  powerSupplyOn: boolean;
   occupancyCount: number;
   peoplePresent: string[];
   temperatureC: number;
@@ -11,6 +12,7 @@ export interface RoomSimulationState {
   co2Ppm: number;
   ambientLightLux: number;
   outsideTemperatureC: number;
+  acSetpointC: number;
   hvacDemand: number;
   comfortScore: number | null;
   occupancyState: OccupancyState;

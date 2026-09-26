@@ -125,6 +125,7 @@ model Room {
   areaSqMeters            Float          @default(45.0)
   baselineExpectedPowerW  Float          @default(1800.0)
   status                  RoomStatus     @default(ACTIVE)
+  powerSupplyOn           Boolean        @default(true)
   currentOccupancyState   OccupancyState @default(VACANT)
   vacancyTimerStartedAt   DateTime?
   currentTemperature      Float          @default(24.0)
@@ -144,6 +145,7 @@ model Room {
   devices             Device[]
   people              Person[]
   telemetry           RoomTelemetry[]
+  meterReadings       MeterReading[]
   occupancyEvents     OccupancyEvent[]
   energyBaselines     EnergyBaseline[]
   alerts              Alert[]
@@ -399,19 +401,35 @@ model ActionEvent {
   @@index([roomId, timestamp])
 }
 
-model SavingsSession {
-  id              String               @id @default(uuid())
+model MeterReading {
+  id              String   @id @default(uuid())
   roomId          String
-  status          SavingsSessionStatus @default(OPEN)
-  triggerType     String
-  startedAt       DateTime             @default(now())
-  endedAt         DateTime?
-  durationMinutes Float                @default(0.0)
-  energySavedKwh  Float                @default(0.0)
-  costSavedInr    Float                @default(0.0)
-  co2SavedKg      Float                @default(0.0)
-  baselinePowerW  Float                @default(0.0)
-  actualPowerW    Float                @default(0.0)
+  intervalStart   DateTime
+  intervalEnd     DateTime
+  energyKwh       Float
+  cumulativeKwh   Float    @default(0.0)
+  averagePowerW   Float    @default(0.0)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, intervalStart])
+}
+
+model SavingsSession {
+  id                      String               @id @default(uuid())
+  roomId                  String
+  status                  SavingsSessionStatus @default(OPEN)
+  triggerType             String
+  startedAt               DateTime             @default(now())
+  endedAt                 DateTime?
+  durationMinutes         Float                @default(0.0)
+  energySavedKwh          Float                @default(0.0)
+  costSavedInr            Float                @default(0.0)
+  co2SavedKg              Float                @default(0.0)
+  baselinePowerW          Float                @default(0.0)
+  actualPowerW            Float                @default(0.0)
+  counterfactualEnergyKwh Float                @default(0.0)
+  actualEnergyKwh         Float                @default(0.0)
 
   room   Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
   events SavingsEvent[]

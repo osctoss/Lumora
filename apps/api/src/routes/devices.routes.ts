@@ -16,7 +16,11 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
     Body: { state: DeviceState; roomId?: string; reason?: string };
   }>('/:id/state', async (request, reply) => {
     const { id } = request.params;
-    const { state, roomId = 'room-101', reason = 'Manual user override' } = request.body || {};
+    const { state, roomId, reason = 'Manual user override' } = request.body || {};
+
+    if (!roomId) {
+      return reply.status(400).send({ error: 'roomId is required' });
+    }
 
     const device = simulationState.getDevice(roomId, id);
     if (!device) {
@@ -88,7 +92,11 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
     Body: { roomId?: string; turnOffOnVacancy?: boolean; allowPreCool?: boolean; priority?: number };
   }>('/:id/policy', async (request, reply) => {
     const { id } = request.params;
-    const { roomId = 'room-101', turnOffOnVacancy, allowPreCool, priority } = request.body || {};
+    const { roomId, turnOffOnVacancy, allowPreCool, priority } = request.body || {};
+
+    if (!roomId) {
+      return reply.status(400).send({ error: 'roomId is required' });
+    }
 
     const device = simulationState.getDevice(roomId, id);
     if (!device) {

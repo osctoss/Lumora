@@ -53,13 +53,24 @@ export class SimulationEngine {
       for (const room of rooms) {
         const roomId = room.roomId;
 
+        // ─── Room Power Supply Check (Correction §13) ─────────────
+        // If room power is OFF, skip device calculations, meter records zero
+        if (!room.state.powerSupplyOn) {
+          simulationState.updateRoomState(roomId, {
+            totalPowerKw: 0,
+            expectedRegisteredPowerKw: 0,
+            unaccountedPowerKw: 0,
+          });
+          continue;
+        }
+
         // ─── Step 3 & 4: Occupancy State Machine ────────────────────
         const occResult = occupancyModel.updateRoomOccupancy(roomId, dtSeconds);
 
         // ─── Step 5: Environmental Differential Equations ───────────
         const envResult = environmentModel.updateEnvironment(roomId, dtSeconds);
 
-        // ─── Step 6: Sensor Readings ────────────────────────────────
+        // ─── Step 6: Sensor Readings (dynamic sensor IDs) ───────────
         const pirVal = readPirSensor(occResult.peopleCount);
         const mmWaveVal = readMmWaveSensor(occResult.peopleCount);
         const tempVal = readTemperatureSensor(envResult.temperature);
@@ -67,12 +78,12 @@ export class SimulationEngine {
         const co2Val = readCo2Sensor(envResult.co2);
         const luxVal = readAmbientLightSensor(envResult.ambientLight);
 
-        simulationState.updateSensorReading(roomId, 'sensor-pir-101', pirVal);
-        simulationState.updateSensorReading(roomId, 'sensor-mmwave-101', mmWaveVal);
-        simulationState.updateSensorReading(roomId, 'sensor-temp-101', tempVal);
-        simulationState.updateSensorReading(roomId, 'sensor-humidity-101', humidityVal);
-        simulationState.updateSensorReading(roomId, 'sensor-co2-101', co2Val);
-        simulationState.updateSensorReading(roomId, 'sensor-light-101', luxVal);
+        simulationState.updateSensorReading(roomId, `sensor-pir-${roomId}`, pirVal);
+        simulationState.updateSensorReading(roomId, `sensor-mmwave-${roomId}`, mmWaveVal);
+        simulationState.updateSensorReading(roomId, `sensor-temp-${roomId}`, tempVal);
+        simulationState.updateSensorReading(roomId, `sensor-humidity-${roomId}`, humidityVal);
+        simulationState.updateSensorReading(roomId, `sensor-co2-${roomId}`, co2Val);
+        simulationState.updateSensorReading(roomId, `sensor-light-${roomId}`, luxVal);
 
         // ─── Step 7: Device Models & Power Calculation ──────────────
         const devices = simulationState.getDevices(roomId);
@@ -83,7 +94,7 @@ export class SimulationEngine {
           const devResult = model.calculate(device, {
             dtSeconds,
             roomTempC: envResult.temperature,
-            targetTempC: 24.0,
+            targetTempC: room.state.acSetpointC,
             occupancyCount: occResult.peopleCount,
             roomLux: envResult.ambientLight,
           });
@@ -99,14 +110,13 @@ export class SimulationEngine {
 
         // ─── Step 8: Smart Energy Meter Aggregation ─────────────────
         const meterReading = readEnergyMeter(devices, room.unregisteredLoadW, timestampIso);
-        simulationState.updateSensorReading(roomId, 'sensor-meter-101', meterReading.activePowerW);
+        simulationState.updateSensorReading(roomId, `sensor-meter-${roomId}`, meterReading.activePowerW);
 
         // ─── Step 9 & 10: Policy Engine & Autonomous Actions ────────
         policyEngine.evaluateRoomPolicies(roomId);
 
         // ─── Step 11 & 12: Anomaly & Unregistered Load Detection ────
         if (meterReading.unaccountedPowerW >= 50.0) {
-          // If unaccounted power > 50W, emit alert
           publish(EventTypes.ANOMALY_DETECTED, roomId, {
             meteredPowerW: meterReading.activePowerW,
             expectedPowerW: meterReading.expectedPowerW,
@@ -157,6 +167,7 @@ export class SimulationEngine {
               occupancyState: occResult.state,
               voltageV: meterReading.voltageV,
               powerFactor: meterReading.powerFactor,
+              powerSupplyOn: room.state.powerSupplyOn,
             },
           },
           'SIMULATION',
