@@ -3,14 +3,15 @@ import { simulationClock } from '../modules/simulation/simulation-clock.js';
 import { triggerScenario } from '../modules/simulation/scenarios/index.js';
 
 export async function simulationRoutes(app: FastifyInstance): Promise<void> {
-  // GET /api/simulation/state
-  app.get('/state', async () => {
-    return simulationClock.getState();
-  });
+  // GET /api/simulation/state & GET /api/simulation/clock
+  const getState = async () => simulationClock.getState();
+  app.get('/state', getState);
+  app.get('/clock', getState);
 
   // POST /api/simulation/speed
-  app.post<{ Body: { speed: number } }>('/speed', async (request, reply) => {
-    const { speed } = request.body || {};
+  app.post<{ Body: { speed?: number; speedMultiplier?: number } }>('/speed', async (request, reply) => {
+    const raw = request.body?.speed ?? request.body?.speedMultiplier;
+    const speed = Number(raw);
     if (![1, 2, 5, 10, 30, 60].includes(speed)) {
       return reply.status(400).send({ error: 'Invalid speed. Supported: 1, 2, 5, 10, 30, 60' });
     }

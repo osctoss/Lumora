@@ -30,21 +30,38 @@ export function AppLayout() {
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
 
-    socket.on('SIMULATION_TICK', (data: any) => {
-      if (data?.timestamp) {
-        const d = new Date(data.timestamp);
+    const onTick = (data: any) => {
+      const ts = data?.payload?.timestamp || data?.timestamp;
+      if (ts) {
+        const d = new Date(ts);
         setSimTime(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       }
-    });
+      const clock = data?.payload?.clock || data?.clock;
+      if (clock?.status) {
+        setSimRunning(clock.status === 'RUNNING');
+      }
+      if (clock?.speedMultiplier) {
+        setSimSpeed(clock.speedMultiplier);
+      }
+    };
+
+    const onPaused = () => setSimRunning(false);
+    const onResumed = () => setSimRunning(true);
+
+    socket.on('SIMULATION_TICK', onTick);
+    socket.on('SIMULATION_PAUSED', onPaused);
+    socket.on('SIMULATION_RESUMED', onResumed);
 
     // Check initial clock status
-    apiRequest('/simulation/clock')
+    apiRequest('/simulation/state')
       .then((clock) => {
-        setSimRunning(clock.status === 'RUNNING');
-        setSimSpeed(clock.speedMultiplier || 1);
-        if (clock.simulatedTime) {
-          const d = new Date(clock.simulatedTime);
-          setSimTime(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        if (clock) {
+          setSimRunning(clock.status === 'RUNNING');
+          setSimSpeed(clock.speedMultiplier || 1);
+          if (clock.simulatedTime) {
+            const d = new Date(clock.simulatedTime);
+            setSimTime(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+          }
         }
       })
       .catch(() => {});
@@ -52,18 +69,20 @@ export function AppLayout() {
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
-      socket.off('SIMULATION_TICK');
+      socket.off('SIMULATION_TICK', onTick);
+      socket.off('SIMULATION_PAUSED', onPaused);
+      socket.off('SIMULATION_RESUMED', onResumed);
     };
   }, []);
 
   const handleToggleSimulation = async () => {
     try {
       if (simRunning) {
-        await apiRequest('/simulation/pause', { method: 'POST' });
         setSimRunning(false);
+        await apiRequest('/simulation/pause', { method: 'POST', body: '{}' });
       } else {
-        await apiRequest('/simulation/resume', { method: 'POST' });
         setSimRunning(true);
+        await apiRequest('/simulation/resume', { method: 'POST', body: '{}' });
       }
     } catch (err) {
       console.error('Failed to toggle simulation:', err);
@@ -72,11 +91,11 @@ export function AppLayout() {
 
   const handleSpeedChange = async (speed: number) => {
     try {
+      setSimSpeed(speed);
       await apiRequest('/simulation/speed', {
         method: 'POST',
-        body: JSON.stringify({ speedMultiplier: speed }),
+        body: JSON.stringify({ speed, speedMultiplier: speed }),
       });
-      setSimSpeed(speed);
     } catch (err) {
       console.error('Failed to set speed:', err);
     }
@@ -84,8 +103,13 @@ export function AppLayout() {
 
   const handleReset = async () => {
     try {
-      await apiRequest('/simulation/reset', { method: 'POST' });
       setSimRunning(true);
+      setSimSpeed(1);
+      const state = await apiRequest('/simulation/reset', { method: 'POST', body: '{}' });
+      if (state?.simulatedTime) {
+        const d = new Date(state.simulatedTime);
+        setSimTime(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      }
     } catch (err) {
       console.error('Failed to reset simulation:', err);
     }

@@ -8,6 +8,12 @@ export async function apiRequest<T = any>(
     ? endpoint
     : `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 
+  const method = (options.method || 'GET').toUpperCase();
+  const hasBody = options.body !== undefined && options.body !== null;
+  const isWriteMethod = ['POST', 'PUT', 'PATCH'].includes(method);
+
+  const finalBody = hasBody ? options.body : (isWriteMethod ? '{}' : undefined);
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
@@ -15,6 +21,7 @@ export async function apiRequest<T = any>(
 
   const response = await fetch(url, {
     ...options,
+    body: finalBody,
     headers,
   });
 

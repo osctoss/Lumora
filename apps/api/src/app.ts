@@ -30,6 +30,20 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(sensible);
 
+  // Allow empty JSON bodies gracefully
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body: string, done) => {
+    if (!body || body.trim() === '') {
+      done(null, {});
+      return;
+    }
+    try {
+      done(null, JSON.parse(body));
+    } catch (err: any) {
+      err.statusCode = 400;
+      done(err, undefined);
+    }
+  });
+
   // Global error handler
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {
