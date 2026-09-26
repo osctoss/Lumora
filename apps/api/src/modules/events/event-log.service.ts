@@ -44,6 +44,25 @@ class EventLogService {
     }
     return this.recentEvents.slice(0, limit);
   }
+
+  async getEventsPaginated(params: {
+    limit?: number;
+    offset?: number;
+    roomId?: string;
+  }): Promise<{ events: IntelliSaveEvent[]; total: number; limit: number; offset: number }> {
+    const limit = Math.min(100, Math.max(1, params.limit || 50));
+    const offset = Math.max(0, params.offset || 0);
+
+    // Filter in-memory buffer
+    let filtered = this.recentEvents;
+    if (params.roomId) {
+      filtered = filtered.filter((e) => e.roomId === params.roomId);
+    }
+
+    const total = filtered.length;
+    const events = filtered.slice(offset, offset + limit);
+    return { events, total, limit, offset };
+  }
 }
 
 export const eventLogService = new EventLogService();

@@ -12,6 +12,8 @@ import { readAmbientLightSensor } from './sensor-models/ambient-light.js';
 import { getDeviceModel } from './device-models/index.js';
 import { policyEngine } from '../automation/policy-engine.js';
 import { savingsEngine } from '../savings/savings-engine.js';
+import { meterEngine } from '../energy/meter-engine.js';
+import { alertService } from '../analytics/alert.service.js';
 import { computeComfortScore } from '../comfort/comfort-engine.js';
 import { publish } from '../../websocket/event-publisher.js';
 import { EventTypes } from '@intellisave/shared';
@@ -45,21 +47,29 @@ export class SimulationEngine {
 
     this.isProcessingTick = true;
     try {
-      const dtSeconds = 1 * simulationClock.getSpeedMultiplier();
-      const simTime = simulationClock.advance(dtSeconds);
+      const dtSeconds = simulationClock.getSpeedMultiplier();
+      const simTime = simulationClock.advance(1);
       const timestampIso = simTime.toISOString();
       const rooms = simulationState.getAllRooms();
 
       for (const room of rooms) {
         const roomId = room.roomId;
 
-        // ─── Room Power Supply Check (Correction §13) ─────────────
+        // ─── Room Power Supply Check (Correction §13, §34) ─────────
         // If room power is OFF, skip device calculations, meter records zero
         if (!room.state.powerSupplyOn) {
           simulationState.updateRoomState(roomId, {
             totalPowerKw: 0,
             expectedRegisteredPowerKw: 0,
             unaccountedPowerKw: 0,
+          });
+          meterEngine.processTick({
+            roomId,
+            powerSupplyOn: false,
+            devices: [],
+            unregisteredLoadW: 0,
+            dtSeconds,
+            simTime,
           });
           continue;
         }
@@ -112,19 +122,33 @@ export class SimulationEngine {
         const meterReading = readEnergyMeter(devices, room.unregisteredLoadW, timestampIso);
         simulationState.updateSensorReading(roomId, `sensor-meter-${roomId}`, meterReading.activePowerW);
 
+        // Process 5-minute interval meter engine (Correction §34–§38)
+        meterEngine.processTick({
+          roomId,
+          powerSupplyOn: true,
+          devices,
+          unregisteredLoadW: room.unregisteredLoadW,
+          dtSeconds,
+          simTime,
+        });
+
         // ─── Step 9 & 10: Policy Engine & Autonomous Actions ────────
         policyEngine.evaluateRoomPolicies(roomId);
 
-        // ─── Step 11 & 12: Anomaly & Unregistered Load Detection ────
-        if (meterReading.unaccountedPowerW >= 50.0) {
-          publish(EventTypes.ANOMALY_DETECTED, roomId, {
-            meteredPowerW: meterReading.activePowerW,
-            expectedPowerW: meterReading.expectedPowerW,
-            unaccountedPowerW: meterReading.unaccountedPowerW,
-            severity: 'HIGH',
-            message: `Unregistered load detected: ${meterReading.unaccountedPowerW}W unaccounted power draw`,
-          });
-        }
+        // ─── Step 11 & 12: Anomaly & Alert Evaluation (Correction §50, §51) ────
+        alertService.evaluateRoom({
+          roomId,
+          roomName: room.name,
+          isOccupied: occResult.peopleCount > 0,
+          occupancyCount: occResult.peopleCount,
+          powerSupplyOn: room.state.powerSupplyOn,
+          activePowerW: meterReading.activePowerW,
+          expectedPowerW: meterReading.expectedPowerW,
+          unaccountedPowerW: meterReading.unaccountedPowerW,
+          temperatureC: envResult.temperature,
+          co2Ppm: envResult.co2,
+          simTime,
+        });
 
         // ─── Step 13 & 14: Savings & Counterfactual Ledger ──────────
         savingsEngine.updateSession(roomId, meterReading.activePowerW, dtSeconds);

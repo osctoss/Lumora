@@ -1,7 +1,12 @@
 import { FastifyInstance } from 'fastify';
 import { simulationState } from '../modules/simulation/simulation-state.js';
+import { meterEngine } from '../modules/energy/meter-engine.js';
+import { eventLogService } from '../modules/events/event-log.service.js';
+import { alertService } from '../modules/analytics/alert.service.js';
 import { publish } from '../websocket/event-publisher.js';
 import { EventTypes } from '@intellisave/shared';
+import { roundTo } from '../utils/math.js';
+import { SIMULATION_DEFAULTS } from '../config/defaults.js';
 import { randomUUID } from 'crypto';
 
 export async function roomRoutes(app: FastifyInstance): Promise<void> {
@@ -298,6 +303,16 @@ export async function roomRoutes(app: FastifyInstance): Promise<void> {
               co2GenerationPpmPerHour: 38000,
             },
           });
+
+          await prisma.occupancyEvent.create({
+            data: {
+              roomId: room.roomId,
+              personId,
+              eventType: 'PERSON_ENTERED',
+              occupancyCount: newCount,
+              state: 'OCCUPIED',
+            },
+          });
         } catch {}
       });
 
@@ -357,6 +372,16 @@ export async function roomRoutes(app: FastifyInstance): Promise<void> {
           await prisma.person.update({
             where: { id: request.params.personId },
             data: { active: false, leftAt: new Date() },
+          });
+
+          await prisma.occupancyEvent.create({
+            data: {
+              roomId: room.roomId,
+              personId: request.params.personId,
+              eventType: 'PERSON_EXITED',
+              occupancyCount: newCount,
+              state: newCount === 0 ? 'VACANCY_PENDING' : 'OCCUPIED',
+            },
           });
         } catch {}
       });
@@ -483,4 +508,189 @@ export async function roomRoutes(app: FastifyInstance): Promise<void> {
       return { success: true, temperatureC };
     },
   );
+
+  // GET /api/rooms/:id/energy — room energy consumption intervals & cumulative (Correction §38, §56)
+  app.get<{ Params: { id: string }; Querystring: { start?: string; end?: string } }>(
+    '/:id/energy',
+    async (request, reply) => {
+      const room = simulationState.getRoom(request.params.id);
+      if (!room) {
+        return reply.status(404).send({ error: 'Room not found' });
+      }
+
+      const start = request.query.start ? new Date(request.query.start) : undefined;
+      const end = request.query.end ? new Date(request.query.end) : undefined;
+
+      const result = await meterEngine.getRoomEnergy(room.roomId, start, end);
+      return result;
+    },
+  );
+
+  // GET /api/rooms/:id/events — paginated events for a room (Correction §56)
+  app.get<{ Params: { id: string }; Querystring: { limit?: number; offset?: number } }>(
+    '/:id/events',
+    async (request, reply) => {
+      const room = simulationState.getRoom(request.params.id);
+      if (!room) {
+        return reply.status(404).send({ error: 'Room not found' });
+      }
+
+      const limit = Number(request.query.limit) || 50;
+      const offset = Number(request.query.offset) || 0;
+      return await eventLogService.getEventsPaginated({ roomId: room.roomId, limit, offset });
+    },
+  );
+
+  // GET /api/rooms/:id/alerts — active alerts for a room (Correction §56)
+  app.get<{ Params: { id: string }; Querystring: { all?: boolean } }>(
+    '/:id/alerts',
+    async (request, reply) => {
+      const room = simulationState.getRoom(request.params.id);
+      if (!room) {
+        return reply.status(404).send({ error: 'Room not found' });
+      }
+
+      const unresolvedOnly = request.query.all !== true;
+      const alerts = alertService.getRoomAlerts(room.roomId, unresolvedOnly);
+      return { alerts, total: alerts.length };
+    },
+  );
+
+  // GET /api/rooms/:id/dashboard — room dashboard data contract (Correction §54)
+  app.get<{ Params: { id: string }; Querystring: { start?: string; end?: string } }>(
+    '/:id/dashboard',
+    async (request, reply) => {
+      const room = simulationState.getRoom(request.params.id);
+      if (!room) {
+        return reply.status(404).send({ error: 'Room not found' });
+      }
+
+      const startDate = request.query.start ? new Date(request.query.start) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const endDate = request.query.end ? new Date(request.query.end) : new Date();
+
+      const roomEnergy = await meterEngine.getRoomEnergy(room.roomId, startDate, endDate);
+      const devices = simulationState.getDevices(room.roomId);
+      const totalPowerW = Math.round(room.state.totalPowerKw * 1000);
+      const expectedPowerW = Math.round(room.state.expectedRegisteredPowerKw * 1000);
+      const unaccountedPowerW = Math.max(0, totalPowerW - expectedPowerW);
+
+      const alerts = alertService.getRoomAlerts(room.roomId, true);
+      const recentEvents = eventLogService.getRecentEvents(15, room.roomId);
+
+      return {
+        room: {
+          id: room.roomId,
+          name: room.name,
+          floor: room.floor,
+          capacity: room.capacity,
+          powerSupplyOn: room.state.powerSupplyOn,
+          occupancyState: room.state.occupancyState,
+          deviceCount: devices.length,
+        },
+        range: {
+          start: startDate.toISOString(),
+          end: endDate.toISOString(),
+        },
+        energy: {
+          consumptionKwh: roomEnergy.consumptionKwh,
+          savedKwh: roundTo(room.cumulativeSavingsKwh, 3),
+          expectedKwh: roundTo(room.state.expectedRegisteredPowerKw, 3),
+          unaccountedKwh: roundTo(unaccountedPowerW / 1000, 3),
+        },
+        current: {
+          occupancy: room.state.occupancyCount,
+          temperatureC: room.state.temperatureC,
+          humidityPercent: room.state.humidityPct,
+          co2Ppm: room.state.co2Ppm,
+          ambientLux: room.state.ambientLightLux,
+          environmentalTemperatureC: room.state.outsideTemperatureC || SIMULATION_DEFAULTS.OUTDOOR_TEMP_C,
+          currentPowerW: totalPowerW,
+        },
+        devices: devices.map((d) => ({
+          id: d.id,
+          name: d.name,
+          type: d.type,
+          currentState: d.currentState,
+          isPoweredOn: d.isPoweredOn,
+          currentPowerW: d.currentPowerW,
+          ratedPowerW: d.ratedPowerW,
+          standbyPowerW: d.standbyPowerW,
+          isProtected: d.isProtected,
+        })),
+        alerts: alerts.map((a) => ({
+          id: a.id,
+          roomId: a.roomId,
+          type: a.alertType,
+          severity: a.severity,
+          message: a.message,
+          reason: a.reason,
+          timestamp: a.timestamp,
+        })),
+        recentEvents: recentEvents.map((e) => ({
+          id: e.eventId,
+          roomId: e.roomId,
+          eventType: e.eventType,
+          source: e.source,
+          timestamp: e.timestamp,
+          payload: e.payload,
+        })),
+        trend: roomEnergy.intervals.map((item) => ({
+          timestamp: item.intervalEnd,
+          consumptionKwh: item.energyKwh,
+          averagePowerW: item.averagePowerW,
+        })),
+      };
+    },
+  );
+
+  // GET /api/rooms/:id/virtual — virtual room state data contract (Correction §55)
+  app.get<{ Params: { id: string } }>('/:id/virtual', async (request, reply) => {
+    const room = simulationState.getRoom(request.params.id);
+    if (!room) {
+      return reply.status(404).send({ error: 'Room not found' });
+    }
+
+    const devices = simulationState.getDevices(room.roomId);
+    const people = simulationState.getPeople(room.roomId).filter((p) => p.active);
+
+    return {
+      room: {
+        id: room.roomId,
+        name: room.name,
+        floor: room.floor,
+        capacity: room.capacity,
+        powerSupplyOn: room.state.powerSupplyOn,
+        occupancyState: room.state.occupancyState,
+        acSetpointC: room.state.acSetpointC || 24.0,
+      },
+      sensors: {
+        temperatureC: room.state.temperatureC,
+        humidityPercent: room.state.humidityPct,
+        co2Ppm: room.state.co2Ppm,
+        occupancy: room.state.occupancyCount,
+        ambientLux: room.state.ambientLightLux,
+        environmentalTemperatureC: room.state.outsideTemperatureC || SIMULATION_DEFAULTS.OUTDOOR_TEMP_C,
+      },
+      powerSupply: {
+        isOn: room.state.powerSupplyOn,
+      },
+      people: people.map((p) => ({
+        id: p.id,
+        displayName: p.displayName,
+        active: p.active,
+      })),
+      devices: devices.map((d) => ({
+        id: d.id,
+        name: d.name,
+        type: d.type,
+        currentState: d.currentState,
+        isPoweredOn: d.isPoweredOn,
+        currentPowerW: d.currentPowerW,
+        ratedPowerW: d.ratedPowerW,
+        standbyPowerW: d.standbyPowerW,
+        isProtected: d.isProtected,
+        isControllable: d.isControllable,
+      })),
+    };
+  });
 }

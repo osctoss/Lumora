@@ -13,6 +13,9 @@ import { aiRoutes } from './routes/ai.routes.js';
 import { energyRoutes } from './routes/energy.routes.js';
 import { calibrationRoutes } from './routes/calibration.routes.js';
 import { settingsRoutes } from './routes/settings.routes.js';
+import { meterEngine } from './modules/energy/meter-engine.js';
+import { eventLogService } from './modules/events/event-log.service.js';
+import { alertService } from './modules/analytics/alert.service.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = fastify({
@@ -93,6 +96,27 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(energyRoutes, { prefix: '/api/energy' });
   await app.register(calibrationRoutes, { prefix: '/api/calibration' });
   await app.register(settingsRoutes, { prefix: '/api/settings' });
+
+  // Building routes alias (Correction §38, §56)
+  app.get<{ Querystring: { start?: string; end?: string } }>('/api/building/energy', async (request) => {
+    const start = request.query.start ? new Date(request.query.start) : undefined;
+    const end = request.query.end ? new Date(request.query.end) : undefined;
+    return await meterEngine.getBuildingEnergy(start, end);
+  });
+
+  // GET /api/building/events — building event feed (Correction §56)
+  app.get<{ Querystring: { limit?: number; offset?: number } }>('/api/building/events', async (request) => {
+    const limit = Number(request.query.limit) || 50;
+    const offset = Number(request.query.offset) || 0;
+    return await eventLogService.getEventsPaginated({ limit, offset });
+  });
+
+  // GET /api/building/alerts — building active alerts (Correction §56)
+  app.get<{ Querystring: { all?: boolean } }>('/api/building/alerts', async (request) => {
+    const unresolvedOnly = request.query.all !== true;
+    const alerts = alertService.getBuildingAlerts(unresolvedOnly);
+    return { alerts, total: alerts.length };
+  });
 
   return app;
 }

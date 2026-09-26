@@ -1,4 +1,4 @@
-import { clamp, boundedNoise, roundTo } from '../../utils/math.js';
+import { clamp, roundTo } from '../../utils/math.js';
 import { simulationState } from './simulation-state.js';
 import { simulationClock } from './simulation-clock.js';
 import { SIMULATION_DEFAULTS } from '../../config/defaults.js';
@@ -25,91 +25,91 @@ export class EnvironmentModel {
     const people = simulationState.getPeople(roomId).filter((p) => p.active);
     const simTime = simulationClock.getSimulatedTime();
 
-    // ─── 1. Thermal Model ─────────────────────────────────────────
-    // Thermal time constant tau (seconds) for building thermal mass: ~3600s
-    const tau = 3600.0;
-    const outdoorTemp = state.outsideTemperatureC;
+    // ─── 1. Thermal Model (Correction §27, §28) ───────────────────
+    const acDevice = devices.find((d) => d.type === 'AC' && d.isPoweredOn && d.currentState !== 'OFF');
+    let newTemp = state.temperatureC;
 
-    // Heat gains:
-    // Occupants: ~100W sensible heat per person
-    const occupantHeatWatts = people.reduce((sum, p) => sum + (p.heatGainW || 100), 0);
+    if (acDevice && state.powerSupplyOn) {
+      // AC is running (Correction §27):
+      // Target setpoint enforced between 18°C and 28°C
+      const acSetpoint = clamp(state.acSetpointC || 24.0, 18.0, 28.0);
 
-    // Device internal gains: lights and equipment convert power to heat
-    const activeEquipmentWatts = devices.reduce((sum, d) => {
-      if (d.type !== 'AC' && d.isPoweredOn) {
-        return sum + d.currentPowerW;
+      if (state.temperatureC > acSetpoint) {
+        // Temperature reduction: 0.5°C per simulation minute
+        const coolingDrop = (0.5 / 60) * dtSeconds;
+        newTemp = Math.max(acSetpoint, state.temperatureC - coolingDrop);
+      } else {
+        // At or below setpoint: maintain setpoint (COMPRESSOR_OFF mode)
+        // Guard against float drift below setpoint
+        newTemp = acSetpoint;
       }
-      return sum;
-    }, 0) + room.unregisteredLoadW;
+    } else {
+      // AC is OFF (Correction §28):
+      // Temperature rises gradually toward environmental temperature - 5°C
+      const outdoorTemp = state.outsideTemperatureC || SIMULATION_DEFAULTS.OUTDOOR_TEMP_C;
+      const targetEquilibriumTemp = outdoorTemp - 5.0;
 
-    const totalInternalGainWatts = occupantHeatWatts + activeEquipmentWatts;
-    // Room thermal capacitance estimate: 45 sqm * 3m height * 1.2 kg/m3 * 1000 J/kgK ≈ 162,000 J/K
-    const roomThermalCapacitance = room.areaSqMeters * 3.0 * 1200.0;
-    const heatGainRatePerSec = totalInternalGainWatts / roomThermalCapacitance;
-
-    // HVAC cooling effect:
-    const acDevice = devices.find((d) => d.type === 'AC' && d.isPoweredOn && d.currentState === 'COOLING');
-    let hvacCoolingRatePerSec = 0;
-    if (acDevice) {
-      // 1.5 Ton AC has ~5000 W thermal cooling capacity
-      const ratedCoolingWatts = 5000.0;
-      hvacCoolingRatePerSec = ratedCoolingWatts / roomThermalCapacitance;
+      if (state.temperatureC < targetEquilibriumTemp) {
+        // Temperature rise: 0.5°C per simulation minute
+        const warmingRise = (0.5 / 60) * dtSeconds;
+        newTemp = Math.min(targetEquilibriumTemp, state.temperatureC + warmingRise);
+      } else if (state.temperatureC > targetEquilibriumTemp) {
+        // If room was warmer than equilibrium (e.g., manual override), cool towards equilibrium
+        const coolingDrop = (0.5 / 60) * dtSeconds;
+        newTemp = Math.max(targetEquilibriumTemp, state.temperatureC - coolingDrop);
+      } else {
+        newTemp = targetEquilibriumTemp;
+      }
     }
 
-    // Heat transfer through walls/windows: (T_out - T_in) / tau
-    const conductionRatePerSec = (outdoorTemp - state.temperatureC) / tau;
+    // Float rounding to 2 decimal places to prevent drift
+    newTemp = roundTo(newTemp, 2);
 
-    // Thermal delta
-    const deltaT = (conductionRatePerSec + heatGainRatePerSec - hvacCoolingRatePerSec) * dtSeconds;
-    const newTemp = clamp(state.temperatureC + deltaT + boundedNoise(0.02), 16.0, 42.0);
-
-    // ─── 2. CO2 Model ─────────────────────────────────────────────
+    // ─── 2. CO2 Model (Correction §29) ─────────────────────────────
     // Outdoor CO2 baseline: ~415 ppm
     const outdoorCo2 = SIMULATION_DEFAULTS.OUTDOOR_CO2_PPM;
-    // Occupant generation: ~38,000 ppm*liter / hr, in 135 m^3 room ≈ 0.08 ppm/sec per person
+    // Occupant generation: 0.08 ppm/sec per person (4.8 ppm/min)
     const co2GenRatePerSec = people.length * 0.08;
-    // Natural infiltration + ventilation air exchange rate (ach): 0.5 air changes per hour ≈ 0.00014 / sec
+    // Infiltration + ventilation air exchange rate
     const ventilationRatePerSec = 0.00014;
     const deltaCo2 = (co2GenRatePerSec - (state.co2Ppm - outdoorCo2) * ventilationRatePerSec) * dtSeconds;
-    const newCo2 = clamp(state.co2Ppm + deltaCo2 + boundedNoise(0.5), 380.0, 3500.0);
+    const newCo2 = clamp(state.co2Ppm + deltaCo2, 380.0, 3500.0);
 
-    // ─── 3. Humidity Model ─────────────────────────────────────────
+    // ─── 3. Humidity Model (Correction §30) ─────────────────────────
     const outdoorHumidity = SIMULATION_DEFAULTS.OUTDOOR_HUMIDITY_PCT;
-    // AC dehumidifies at ~0.001 % per second when cooling
-    const acDehumidifyRate = acDevice ? 0.001 : 0;
+    const isAcCooling = acDevice && acDevice.currentState === 'COMPRESSOR_ON';
+    const acDehumidifyRate = isAcCooling ? 0.001 : 0;
     const occupantMoistureRate = people.length * 0.0005;
     const humidityInfiltrationRate = 0.0001;
     const deltaHumidity =
       ((outdoorHumidity - state.humidityPct) * humidityInfiltrationRate + occupantMoistureRate - acDehumidifyRate) *
       dtSeconds;
-    const newHumidity = clamp(state.humidityPct + deltaHumidity + boundedNoise(0.05), 20.0, 95.0);
+    const newHumidity = clamp(state.humidityPct + deltaHumidity, 20.0, 95.0);
 
-    // ─── 4. Ambient Light Model ───────────────────────────────────
-    // Solar daylight curve: peaks around 13:00 (1 PM)
+    // ─── 4. Ambient Light Model (Correction §30) ───────────────────
     const hour = simTime.getHours() + simTime.getMinutes() / 60;
     let naturalLightLux = 0;
     if (hour >= 6 && hour <= 19) {
-      // Half-sine solar curve
       const solarAngle = ((hour - 6) / 13) * Math.PI;
       naturalLightLux = Math.sin(solarAngle) * 600.0;
     }
 
-    // Artificial lights contribution
-    const activeLights = devices.filter((d) => (d.type === 'LED' || d.type === 'TUBE_LIGHT') && d.isPoweredOn);
+    const activeLights = devices.filter(
+      (d) => (d.type === 'LED' || d.type === 'TUBE_LIGHT') && d.isPoweredOn && d.currentState !== 'OFF',
+    );
     const artificialLightLux = activeLights.length * 200.0;
-
-    const newLux = Math.round(clamp(naturalLightLux + artificialLightLux + boundedNoise(5.0), 0.0, 1500.0));
+    const newLux = Math.round(clamp(naturalLightLux + artificialLightLux, 0.0, 1500.0));
 
     // Update room simulation state
     simulationState.updateRoomState(roomId, {
-      temperatureC: roundTo(newTemp, 2),
+      temperatureC: newTemp,
       co2Ppm: roundTo(newCo2, 1),
       humidityPct: roundTo(newHumidity, 1),
       ambientLightLux: newLux,
     });
 
     return {
-      temperature: roundTo(newTemp, 2),
+      temperature: newTemp,
       humidity: roundTo(newHumidity, 1),
       co2: roundTo(newCo2, 1),
       ambientLight: newLux,
