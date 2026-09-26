@@ -11,7 +11,7 @@ async function start() {
 
   try {
     await app.listen({ port: env.API_PORT, host: env.API_HOST });
-    logger.info(`🚀 IntelliSave API running on http://localhost:${env.API_PORT}`);
+    logger.info(`🚀 Lumora API running on http://localhost:${env.API_PORT}`);
 
     // Initialize Socket.IO
     initSocketServer(app.server);

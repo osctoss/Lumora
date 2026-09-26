@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 export async function seed() {
-  console.log('🌱 Starting IntelliSave database seed...');
+  console.log('🌱 Starting Lumora database seed...');
 
   // 1. Building
   const building = await prisma.building.upsert({
@@ -11,7 +11,7 @@ export async function seed() {
     update: {},
     create: {
       id: 'building-demo-01',
-      name: 'IntelliSave Demo Building',
+      name: 'Lumora Demo Building',
       address: 'Innovation Campus, Block A',
       electricityTariffInrPerKwh: 8.0,
       co2FactorKgPerKwh: 0.82,
@@ -159,7 +159,7 @@ export async function seed() {
   }
   console.log(`✓ Room 101 devices and policies configured (${devices.length} devices)`);
 
-  console.log('✅ IntelliSave seed completed successfully!');
+  console.log('✅ Lumora seed completed successfully!');
 }
 
 if (process.argv[1]?.endsWith('seed.ts') || process.argv[1]?.endsWith('seed.js')) {

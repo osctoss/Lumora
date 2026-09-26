@@ -2,7 +2,7 @@
   "name": "intellisave",
   "version": "0.1.0",
   "private": true,
-  "description": "IntelliSave — AI-Powered Smart Building Energy & Comfort Optimization",
+  "description": "Lumora — AI-Powered Smart Building Energy & Comfort Optimization",
   "scripts": {
     "dev": "pnpm --parallel --filter @intellisave/api --filter @intellisave/web dev",
     "dev:api": "pnpm --filter @intellisave/api dev",

@@ -47,7 +47,7 @@ export function generateDeterministicExplanation(
 
     default:
       return {
-        summary: `System operational event flagged by IntelliSave anomaly monitor.`,
+        summary: `System operational event flagged by Lumora anomaly monitor.`,
         rootCause: `Telemetry values deviated from nominal operating envelope.`,
         recommendedAction: `Review room state and adjust automation setpoints if appropriate.`,
         financialImpact: `Minor baseline impact.`,

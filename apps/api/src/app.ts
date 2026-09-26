@@ -72,7 +72,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get('/', async () => {
     return {
       status: 'ok',
-      service: 'intellisave-api',
+      service: 'lumora-api',
       version: '0.1.0',
       timestamp: new Date().toISOString(),
     };

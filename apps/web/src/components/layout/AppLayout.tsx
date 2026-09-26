@@ -128,7 +128,7 @@ export function AppLayout() {
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
-                  IntelliSave
+                  Lumora
                 </span>
                 <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   Digital Twin
@@ -245,7 +245,7 @@ export function AppLayout() {
       {/* Footer */}
       <footer className="border-t border-slate-800/80 py-4 px-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>IntelliSave / EnerTwin Smart Building Digital Twin</span>
+          <span>Lumora Smart Building Digital Twin</span>
           <span className="font-mono text-slate-600">Deterministic Realtime Simulation • PostgreSQL Persistent</span>
         </div>
       </footer>

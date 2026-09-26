@@ -8,7 +8,7 @@ import { getDeviceModel } from '../modules/simulation/device-models/index.js';
 import { roundTo } from '../utils/math.js';
 
 async function runAcceptanceTests() {
-  console.log('🧪 Starting IntelliSave Acceptance Tests (§75–§80)...\n');
+  console.log('🧪 Starting Lumora Acceptance Tests (§75–§80)...\n');
   let passed = 0;
   let failed = 0;
 
