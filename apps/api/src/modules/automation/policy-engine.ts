@@ -34,14 +34,14 @@ export class PolicyEngine {
     this.config = { ...this.config, ...newConfig };
   }
 
-  evaluateRoomPolicies(roomId: string): PolicyActionResult[] {
+  evaluateRoomPolicies(roomId: string, currentSimTime?: Date): PolicyActionResult[] {
     const room = simulationState.getRoom(roomId);
     if (!room) return [];
 
     const actions: PolicyActionResult[] = [];
     const state = room.state;
     const devices = simulationState.getDevices(roomId);
-    const now = simulationClock.getSimulatedTime();
+    const now = currentSimTime || simulationClock.getSimulatedTime();
 
     // ─── Vacancy Automation (Correction §42) ──────────────────────
     if (state.occupancyCount === 0 && state.vacancyStartedAt) {
@@ -273,6 +273,9 @@ export class PolicyEngine {
       const connected = await checkDatabaseConnection();
       if (!connected) return;
       try {
+        const roomExists = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true } });
+        if (!roomExists) return;
+
         await prisma.actionEvent.create({
           data: {
             roomId,

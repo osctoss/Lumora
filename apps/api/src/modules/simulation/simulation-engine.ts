@@ -133,7 +133,7 @@ export class SimulationEngine {
         });
 
         // ─── Step 9 & 10: Policy Engine & Autonomous Actions ────────
-        policyEngine.evaluateRoomPolicies(roomId);
+        policyEngine.evaluateRoomPolicies(roomId, simTime);
 
         // ─── Step 11 & 12: Anomaly & Alert Evaluation (Correction §50, §51) ────
         alertService.evaluateRoom({

@@ -212,6 +212,9 @@ export class MeterEngine {
       const connected = await checkDatabaseConnection();
       if (!connected) return;
       try {
+        const roomExists = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true } });
+        if (!roomExists) return;
+
         await prisma.meterReading.create({
           data: {
             id: intervalData.id,

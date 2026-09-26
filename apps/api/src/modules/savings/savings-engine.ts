@@ -140,6 +140,9 @@ export class SavingsEngine {
       const connected = await checkDatabaseConnection();
       if (!connected) return;
       try {
+        const roomExists = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true } });
+        if (!roomExists) return;
+
         await prisma.savingsSession.create({
           data: {
             id: sessionId,
@@ -294,6 +297,9 @@ export class SavingsEngine {
       const connected = await checkDatabaseConnection();
       if (!connected) return;
       try {
+        const exists = await prisma.savingsSession.findUnique({ where: { id: session.id }, select: { id: true } });
+        if (!exists) return;
+
         await prisma.savingsSession.update({
           where: { id: session.id },
           data: {
