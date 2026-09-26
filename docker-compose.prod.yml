@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lumora-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lumora
+      POSTGRES_PASSWORD: lumora_secure_password
+      POSTGRES_DB: lumora
+    ports:
+      - "5432:5432"
+    volumes:
+      - lumora_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lumora"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: lumora-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 3001
+      API_HOST: 0.0.0.0
+      DATABASE_URL: "postgresql://lumora:lumora_secure_password@postgres:5432/lumora?schema=public"
+    ports:
+      - "3001:3001"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: lumora-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+
+volumes:
+  lumora_pgdata:
+    driver: local

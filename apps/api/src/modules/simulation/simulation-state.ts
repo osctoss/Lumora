@@ -115,10 +115,11 @@ class SimulationStateManager {
   }
 
   // ─── Device Management ──────────────────────────────────────
-  addDevice(roomId: string, device: DeviceDto): boolean {
+  addDevice(roomId: string, device: DeviceDto | (Omit<DeviceDto, 'roomId'> & { roomId?: string })): boolean {
     const room = this.rooms.get(roomId);
     if (!room) return false;
-    room.devices.set(device.id, device);
+    const fullDevice: DeviceDto = { ...device, roomId };
+    room.devices.set(device.id, fullDevice);
     return true;
   }
 
