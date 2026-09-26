@@ -359,6 +359,113 @@ class SimulationStateManager {
       room.cumulativeCo2SavedKg += co2;
     }
   }
+
+  async loadFromDatabase(): Promise<boolean> {
+    try {
+      const { prisma, checkDatabaseConnection } = await import('../../db/prisma.js');
+      const isConnected = await checkDatabaseConnection();
+      if (!isConnected) return false;
+
+      const dbRooms = await prisma.room.findMany({
+        include: {
+          settings: true,
+          devices: { include: { policy: true } },
+          sensors: true,
+        },
+      });
+
+      if (!dbRooms || dbRooms.length === 0) return false;
+
+      for (const r of dbRooms) {
+        const devices = new Map<string, DeviceDto>();
+        for (const d of r.devices) {
+          devices.set(d.id, {
+            id: d.id,
+            roomId: d.roomId,
+            name: d.name,
+            type: d.type as any,
+            ratedPowerW: d.ratedPowerW,
+            standbyPowerW: d.standbyPowerW,
+            currentState: d.currentState as any,
+            isPoweredOn: d.currentState !== 'OFF',
+            currentPowerW: d.currentPowerW,
+            cumulativeEnergyKwh: d.cumulativeEnergyKwh,
+            isProtected: d.isProtected,
+            isControllable: d.isControllable,
+            priority: d.priority,
+            lastStateChange: d.lastStateChange?.toISOString() || new Date().toISOString(),
+            policy: d.policy
+              ? {
+                  id: d.policy.id,
+                  deviceId: d.policy.deviceId,
+                  turnOffOnVacancy: d.policy.turnOffOnVacancy,
+                  allowPreCool: d.policy.allowPreCool,
+                  priority: d.policy.priority,
+                  tempThresholdC: d.policy.tempThresholdC ?? undefined,
+                  luxThreshold: d.policy.luxThreshold ?? undefined,
+                }
+              : undefined,
+          });
+        }
+
+        const sensors = new Map<string, SensorDto>();
+        for (const s of r.sensors) {
+          sensors.set(s.id, {
+            id: s.id,
+            roomId: s.roomId,
+            name: s.name,
+            type: s.type as any,
+            unit: s.unit,
+            lastValue: s.lastValue ?? undefined,
+            lastUpdatedAt: s.lastUpdatedAt?.toISOString() ?? undefined,
+          });
+        }
+
+        const state: RoomSimulationState = {
+          roomId: r.id,
+          occupancyCount: r.currentOccupancyState === 'OCCUPIED' ? 15 : 0,
+          peoplePresent:
+            r.currentOccupancyState === 'OCCUPIED'
+              ? ['person-prof-sharma', 'person-student-01', 'person-student-02']
+              : [],
+          temperatureC: r.currentTemperature,
+          humidityPct: r.currentHumidity,
+          co2Ppm: r.currentCo2,
+          ambientLightLux: r.currentLux,
+          outsideTemperatureC: 32.5,
+          hvacDemand: 0.45,
+          comfortScore: r.currentComfortScore,
+          occupancyState: r.currentOccupancyState as any,
+          vacancyStartedAt: null,
+          vacancyDelaySeconds: r.settings?.vacancyConfirmationTimeSec || 300,
+          totalPowerKw: r.totalActivePowerW / 1000,
+          expectedRegisteredPowerKw: r.totalExpectedPowerW / 1000,
+          unaccountedPowerKw: r.unaccountedPowerW / 1000,
+          simulationTimestamp: new Date().toISOString(),
+        };
+
+        this.rooms.set(r.id, {
+          roomId: r.id,
+          name: r.name,
+          floor: r.floor,
+          capacity: r.capacity,
+          areaSqMeters: r.areaSqMeters,
+          state,
+          devices,
+          people: new Map(),
+          sensors,
+          unregisteredLoadW: 0,
+          unregisteredLoadStartedAt: null,
+          cumulativeSavingsKwh: 0,
+          cumulativeCostSavedInr: 0,
+          cumulativeCo2SavedKg: 0,
+        });
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 export const simulationState = new SimulationStateManager();

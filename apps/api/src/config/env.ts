@@ -1,10 +1,15 @@
 import path from 'path';
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+
 dotenv.config();
+dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(currentDir, '../../../../.env') });
 
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = 'postgresql://intellisave:intellisave@localhost:5432/intellisave?schema=public';

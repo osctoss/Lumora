@@ -20,10 +20,15 @@ async function start() {
     // Start Simulation Engine
     simulationEngine.start();
 
-    // Check DB status non-blocking
-    checkDatabaseConnection().then((connected) => {
+    // Check DB status non-blocking & load database state
+    checkDatabaseConnection().then(async (connected) => {
       if (connected) {
         logger.info(`📦 PostgreSQL database connected successfully`);
+        const { simulationState } = await import('./modules/simulation/simulation-state.js');
+        const loaded = await simulationState.loadFromDatabase();
+        if (loaded) {
+          logger.info(`📥 Loaded rooms, devices, sensors, and policies from PostgreSQL into digital twin`);
+        }
       } else {
         logger.warn(`⚠️ PostgreSQL offline — running in high-performance in-memory simulation mode`);
       }

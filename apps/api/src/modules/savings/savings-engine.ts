@@ -47,6 +47,29 @@ class SavingsEngine {
       reason: 'Room vacant; autonomous energy shutdown initiated',
     });
 
+    // Persist to PostgreSQL asynchronously
+    import('../../db/prisma.js').then(async ({ prisma, checkDatabaseConnection }) => {
+      const connected = await checkDatabaseConnection();
+      if (!connected) return;
+      try {
+        await prisma.savingsSession.create({
+          data: {
+            id: sessionId,
+            roomId,
+            status: 'OPEN',
+            triggerType: 'VACANCY_AUTO_SHUTOFF',
+            startedAt: new Date(nowIso),
+            baselinePowerW: baselinePowerW,
+            energySavedKwh: 0,
+            costSavedInr: 0,
+            co2SavedKg: 0,
+          },
+        });
+      } catch {
+        // Non-blocking fallback
+      }
+    });
+
     return session;
   }
 
@@ -104,6 +127,38 @@ class SavingsEngine {
       totalCostSavedInr: roundTo(session.costSavedInr, 2),
       totalCo2SavedKg: roundTo(session.co2SavedKg, 3),
       reason: 'Room occupancy resumed',
+    });
+
+    // Persist session to PostgreSQL asynchronously
+    import('../../db/prisma.js').then(async ({ prisma, checkDatabaseConnection }) => {
+      const connected = await checkDatabaseConnection();
+      if (!connected) return;
+      try {
+        await prisma.savingsSession.upsert({
+          where: { id: session.id },
+          update: {
+            status: 'CLOSED',
+            endedAt: new Date(nowIso),
+            energySavedKwh: roundTo(session.energySavedKwh, 3),
+            costSavedInr: roundTo(session.costSavedInr, 2),
+            co2SavedKg: roundTo(session.co2SavedKg, 3),
+          },
+          create: {
+            id: session.id,
+            roomId,
+            status: 'CLOSED',
+            triggerType: session.triggerType,
+            startedAt: new Date(session.startedAt),
+            endedAt: new Date(nowIso),
+            baselinePowerW: session.baselinePowerW,
+            energySavedKwh: roundTo(session.energySavedKwh, 3),
+            costSavedInr: roundTo(session.costSavedInr, 2),
+            co2SavedKg: roundTo(session.co2SavedKg, 3),
+          },
+        });
+      } catch {
+        // Non-blocking fallback
+      }
     });
 
     this.activeSessions.delete(roomId);

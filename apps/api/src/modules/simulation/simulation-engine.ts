@@ -161,6 +161,49 @@ export class SimulationEngine {
           },
           'SIMULATION',
         );
+
+        // ─── Step 19: Persist to PostgreSQL (every 5 ticks) ─────────
+        if (simulationClock.getTicksElapsed() % 5 === 0) {
+          import('../../db/prisma.js').then(async ({ prisma, checkDatabaseConnection }) => {
+            const connected = await checkDatabaseConnection();
+            if (!connected) return;
+            try {
+              await prisma.roomTelemetry.create({
+                data: {
+                  roomId,
+                  timestamp: new Date(timestampIso),
+                  temperature: envResult.temperature,
+                  humidity: envResult.humidity,
+                  co2: envResult.co2,
+                  lux: envResult.ambientLight,
+                  occupancyDetected: occResult.peopleCount > 0,
+                  peopleCount: occResult.peopleCount,
+                  totalActivePowerW: meterReading.activePowerW,
+                  totalExpectedPowerW: meterReading.expectedPowerW,
+                  unaccountedPowerW: meterReading.unaccountedPowerW,
+                  comfortScore: comfort.overallScore,
+                },
+              });
+
+              await prisma.room.update({
+                where: { id: roomId },
+                data: {
+                  currentOccupancyState: occResult.state as any,
+                  currentTemperature: envResult.temperature,
+                  currentHumidity: envResult.humidity,
+                  currentCo2: envResult.co2,
+                  currentLux: envResult.ambientLight,
+                  currentComfortScore: comfort.overallScore,
+                  totalActivePowerW: meterReading.activePowerW,
+                  totalExpectedPowerW: meterReading.expectedPowerW,
+                  unaccountedPowerW: meterReading.unaccountedPowerW,
+                },
+              });
+            } catch {
+              // Non-blocking fallback
+            }
+          });
+        }
       }
     } catch (err) {
       logger.error('Error in simulation tick:', err);

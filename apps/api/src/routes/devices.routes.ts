@@ -49,6 +49,36 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
       powerW: updated?.currentPowerW,
     });
 
+    // Persist to PostgreSQL asynchronously
+    import('../db/prisma.js').then(async ({ prisma, checkDatabaseConnection }) => {
+      const connected = await checkDatabaseConnection();
+      if (!connected) return;
+      try {
+        await prisma.device.update({
+          where: { id },
+          data: {
+            currentState: state as any,
+            isPoweredOn,
+            currentPowerW: updated?.currentPowerW ?? device.currentPowerW,
+            lastStateChange: new Date(),
+          },
+        });
+
+        await prisma.deviceStateEvent.create({
+          data: {
+            deviceId: id,
+            previousState: previousState as any,
+            newState: state as any,
+            powerW: updated?.currentPowerW ?? device.currentPowerW,
+            source: 'USER',
+            reason,
+          },
+        });
+      } catch {
+        // Non-blocking fallback
+      }
+    });
+
     return { success: true, device: updated };
   });
 
@@ -77,6 +107,30 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
     publish(EventTypes.DEVICE_UPDATED, roomId, {
       deviceId: id,
       policy: updated?.policy,
+    });
+
+    // Persist policy to PostgreSQL asynchronously
+    import('../db/prisma.js').then(async ({ prisma, checkDatabaseConnection }) => {
+      const connected = await checkDatabaseConnection();
+      if (!connected) return;
+      try {
+        await prisma.devicePolicy.upsert({
+          where: { deviceId: id },
+          update: {
+            turnOffOnVacancy: updated?.policy?.turnOffOnVacancy ?? true,
+            allowPreCool: updated?.policy?.allowPreCool ?? false,
+            priority: updated?.policy?.priority ?? 1,
+          },
+          create: {
+            deviceId: id,
+            turnOffOnVacancy: updated?.policy?.turnOffOnVacancy ?? true,
+            allowPreCool: updated?.policy?.allowPreCool ?? false,
+            priority: updated?.policy?.priority ?? 1,
+          },
+        });
+      } catch {
+        // Non-blocking fallback
+      }
     });
 
     return { success: true, device: updated };
