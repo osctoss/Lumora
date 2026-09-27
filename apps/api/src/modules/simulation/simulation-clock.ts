@@ -68,6 +68,10 @@ export class SimulationClock {
     return this.simulatedTime;
   }
 
+  setSimulatedTime(time: Date): void {
+    this.simulatedTime = new Date(time);
+  }
+
   getSpeedMultiplier(): number {
     return this.speedMultiplier;
   }

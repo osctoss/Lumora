@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { simulationState } from '../modules/simulation/simulation-state.js';
+import { simulationClock } from '../modules/simulation/simulation-clock.js';
 import { savingsEngine } from '../modules/savings/savings-engine.js';
 import { meterEngine } from '../modules/energy/meter-engine.js';
 import { alertService } from '../modules/analytics/alert.service.js';
@@ -83,10 +84,32 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /api/dashboard/building — building dashboard data contract (Correction §53)
-  app.get<{ Querystring: { start?: string; end?: string } }>('/building', async (request) => {
+  app.get<{ Querystring: { start?: string; end?: string; timeRange?: string } }>('/building', async (request) => {
     const rooms = simulationState.getAllRooms();
-    const startDate = request.query.start ? new Date(request.query.start) : new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const endDate = request.query.end ? new Date(request.query.end) : new Date();
+    const simNow = simulationClock.getSimulatedTime();
+
+    let startDate: Date;
+    let endDate: Date;
+
+    const timeRange = request.query.timeRange;
+    if (timeRange) {
+      let rangeMs = 24 * 60 * 60 * 1000;
+      if (timeRange === '1h') rangeMs = 1 * 60 * 60 * 1000;
+      else if (timeRange === '6h') rangeMs = 6 * 60 * 60 * 1000;
+      else if (timeRange === '12h') rangeMs = 12 * 60 * 60 * 1000;
+      else if (timeRange === '24h') rangeMs = 24 * 60 * 60 * 1000;
+      else if (timeRange === '7d') rangeMs = 7 * 24 * 60 * 60 * 1000;
+
+      endDate = simNow;
+      startDate = new Date(simNow.getTime() - rangeMs);
+    } else if (request.query.start && request.query.end) {
+      startDate = new Date(request.query.start);
+      endDate = new Date(request.query.end);
+    } else {
+      // Default: Last 24 hours relative to simulation clock (Correction §6.2)
+      endDate = simNow;
+      startDate = new Date(simNow.getTime() - 24 * 60 * 60 * 1000);
+    }
 
     const totalOccupancy = rooms.reduce((sum, r) => sum + r.state.occupancyCount, 0);
     const roomsWithCo2 = rooms.filter((r) => r.state.co2Ppm > 0);
@@ -106,8 +129,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const expectedPowerW = rooms.reduce((sum, r) => sum + Math.round(r.state.expectedRegisteredPowerKw * 1000), 0);
     const unaccountedPowerW = Math.max(0, totalPowerW - expectedPowerW);
 
-    const savedKwh = roundTo(rooms.reduce((sum, r) => sum + r.cumulativeSavingsKwh, 0), 3);
-    const consumptionKwh = buildingEnergy.totalConsumptionKwh || roundTo(rooms.reduce((sum, r) => sum + r.state.totalPowerKw, 0), 3);
+    // Energy Saved in the selected period (Correction §6.3)
+    const savedKwh = await savingsEngine.getBuildingSavings(startDate, endDate);
+    const consumptionKwh = roundTo(buildingEnergy.totalConsumptionKwh, 3);
 
     // Active alerts & recent events
     const activeAlerts = alertService.getBuildingAlerts(true);
@@ -146,7 +170,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       trend: buildingEnergy.intervals.map((item) => ({
         timestamp: item.intervalEnd,
         consumptionKwh: item.energyKwh,
+        savedKwh: item.savedKwh,
+        expectedKwh: item.expectedKwh,
         averagePowerW: item.averagePowerW,
+        averagePowerKw: item.averagePowerKw,
       })),
       alerts: activeAlerts.map((a) => ({
         id: a.id,
@@ -166,7 +193,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         timestamp: e.timestamp,
         payload: e.payload,
       })),
-      timestamp: new Date().toISOString(),
+      timestamp: simNow.toISOString(),
     };
   });
 }

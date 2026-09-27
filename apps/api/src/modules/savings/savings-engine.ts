@@ -329,6 +329,43 @@ export class SavingsEngine {
   getAllActiveSessions(): ActiveSavingsSession[] {
     return Array.from(this.activeSessions.values());
   }
+
+  /**
+   * Get total building energy saved over a specific time range (Correction §6.3).
+   */
+  async getBuildingSavings(start: Date, end: Date): Promise<number> {
+    let dbSaved = 0;
+    try {
+      const { prisma, checkDatabaseConnection } = await import('../../db/prisma.js');
+      if (await checkDatabaseConnection()) {
+        const sessions = await prisma.savingsSession.findMany({
+          where: {
+            startedAt: { lte: end },
+            OR: [
+              { endedAt: null },
+              { endedAt: { gte: start } },
+            ],
+          },
+        });
+        if (sessions.length > 0) {
+          dbSaved = sessions.reduce((sum, s) => sum + s.energySavedKwh, 0);
+          return roundTo(dbSaved, 3);
+        }
+      }
+    } catch {
+      // In-memory fallback
+    }
+
+    // In-memory fallback: sum active sessions in window
+    let inMemorySaved = 0;
+    for (const s of this.activeSessions.values()) {
+      const started = new Date(s.startedAt).getTime();
+      if (started <= end.getTime()) {
+        inMemorySaved += s.energySavedKwh;
+      }
+    }
+    return roundTo(inMemorySaved, 3);
+  }
 }
 
 export const savingsEngine = new SavingsEngine();

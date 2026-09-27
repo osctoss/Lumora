@@ -57,7 +57,10 @@ interface DashboardData {
   trend: Array<{
     timestamp: string;
     consumptionKwh: number;
+    savedKwh?: number;
+    expectedKwh?: number;
     averagePowerW: number;
+    averagePowerKw?: number;
   }>;
   alerts: Array<{
     id: string;
@@ -83,19 +86,13 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const [data, setData] = useState<DashboardData | null>(null);
   const [timeRange, setTimeRange] = useState<'1h' | '6h' | '12h' | '24h' | '7d'>('24h');
+  const [chartMetric, setChartMetric] = useState<'power' | 'energy' | 'savings'>('power');
   const [loading, setLoading] = useState(true);
 
   const fetchDashboardData = async () => {
     try {
-      const now = new Date();
-      let startMs = 24 * 60 * 60 * 1000;
-      if (timeRange === '1h') startMs = 1 * 60 * 60 * 1000;
-      else if (timeRange === '6h') startMs = 6 * 60 * 60 * 1000;
-      else if (timeRange === '12h') startMs = 12 * 60 * 60 * 1000;
-      else if (timeRange === '7d') startMs = 7 * 24 * 60 * 60 * 1000;
-
-      const startDate = new Date(now.getTime() - startMs).toISOString();
-      const res = await apiRequest<DashboardData>(`/dashboard/building?start=${startDate}&end=${now.toISOString()}`);
+      // Anchored to backend simulation clock via timeRange parameter (Correction §6.2, §59)
+      const res = await apiRequest<DashboardData>(`/dashboard/building?timeRange=${timeRange}`);
       setData(res);
     } catch (err) {
       console.error('Failed to load building dashboard:', err);
@@ -106,15 +103,13 @@ export function DashboardPage() {
 
   useEffect(() => {
     fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 10000); // refresh periodically
-    return () => clearInterval(interval);
   }, [timeRange]);
 
   useEffect(() => {
     const socket = getSocket();
 
-    const onSimulationTick = () => {
-      // Periodic soft refresh without full loading flicker
+    const onMeterReading = () => {
+      // Whenever a 5-minute interval completes, refresh aggregated data
       fetchDashboardData();
     };
 
@@ -128,16 +123,22 @@ export function DashboardPage() {
       });
     };
 
-    socket.on('SIMULATION_TICK', onSimulationTick);
+    socket.on('METER_READING', onMeterReading);
     socket.on('ALERT_CREATED', onAlertCreated);
-    socket.on('METER_READING', fetchDashboardData);
+    socket.on('SIMULATION_RESUMED', fetchDashboardData);
+    socket.on('SIMULATION_RESET', fetchDashboardData);
+
+    // Gentle 15-second polling fallback
+    const interval = setInterval(fetchDashboardData, 15000);
 
     return () => {
-      socket.off('SIMULATION_TICK', onSimulationTick);
+      socket.off('METER_READING', onMeterReading);
       socket.off('ALERT_CREATED', onAlertCreated);
-      socket.off('METER_READING', fetchDashboardData);
+      socket.off('SIMULATION_RESUMED', fetchDashboardData);
+      socket.off('SIMULATION_RESET', fetchDashboardData);
+      clearInterval(interval);
     };
-  }, []);
+  }, [timeRange]);
 
   if (loading && !data) {
     return (
@@ -199,14 +200,19 @@ export function DashboardPage() {
             <span className="text-xs font-normal text-slate-400 ml-1">kWh</span>
           </div>
           <div className="text-[11px] text-slate-400 mt-1">
-            Metered interval aggregation
+            Total in {timeRange} window
           </div>
         </div>
 
         {/* 2. Energy Saved */}
         <div className="glass-card p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition-all">
           <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-medium">Energy Saved</span>
+            <span className="text-xs font-medium flex items-center gap-1.5">
+              <span>Energy Saved</span>
+              <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20">
+                Simulated
+              </span>
+            </span>
             <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
               <TrendingDown className="w-4 h-4" />
             </div>
@@ -216,7 +222,10 @@ export function DashboardPage() {
             <span className="text-xs font-normal text-emerald-500 ml-1">kWh</span>
           </div>
           <div className="text-[11px] text-slate-400 mt-1">
-            ₹{((energy?.savedKwh || 0) * 8.0).toFixed(1)} saved • {( (energy?.savedKwh || 0) * 0.82).toFixed(1)}kg CO₂
+            In {timeRange} window • ₹{((energy?.savedKwh || 0) * 8.0).toFixed(1)} saved • {((energy?.savedKwh || 0) * 0.82).toFixed(1)}kg CO₂
+          </div>
+          <div className="text-[10px] text-slate-500 mt-1 italic">
+            Counterfactual copy-room vacancy savings
           </div>
         </div>
 
@@ -299,14 +308,60 @@ export function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Trend Chart (2 columns) */}
         <div className="lg:col-span-2 glass-card p-6 rounded-2xl border border-slate-800 flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
             <div>
-              <h2 className="text-base font-semibold text-white">Building Energy Consumption Trend</h2>
-              <p className="text-xs text-slate-400">5-minute interval metered energy consumption (kWh)</p>
+              <h2 className="text-base font-semibold text-white">
+                {chartMetric === 'power'
+                  ? 'Building Load Profile'
+                  : chartMetric === 'energy'
+                  ? '5-Minute Metered Energy'
+                  : 'Counterfactual Energy Saved'}
+              </h2>
+              <p className="text-xs text-slate-400">
+                {chartMetric === 'power'
+                  ? 'Average real power load (kW) across rooms for each 5-minute interval'
+                  : chartMetric === 'energy'
+                  ? 'Actual metered electrical consumption (kWh) per 5-minute interval'
+                  : 'Simulated energy saved (kWh) via vacancy automation per 5-minute interval'}
+              </p>
             </div>
-            <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-slate-800 text-slate-300">
-              {timeRange} window
-            </span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
+                <button
+                  onClick={() => setChartMetric('power')}
+                  className={`px-2.5 py-1 rounded-md transition-all ${
+                    chartMetric === 'power'
+                      ? 'bg-emerald-500 text-slate-950 font-semibold'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Power (kW)
+                </button>
+                <button
+                  onClick={() => setChartMetric('energy')}
+                  className={`px-2.5 py-1 rounded-md transition-all ${
+                    chartMetric === 'energy'
+                      ? 'bg-emerald-500 text-slate-950 font-semibold'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Energy (kWh)
+                </button>
+                <button
+                  onClick={() => setChartMetric('savings')}
+                  className={`px-2.5 py-1 rounded-md transition-all ${
+                    chartMetric === 'savings'
+                      ? 'bg-emerald-500 text-slate-950 font-semibold'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Savings (kWh)
+                </button>
+              </div>
+              <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-slate-800 text-slate-300">
+                {timeRange} window
+              </span>
+            </div>
           </div>
 
           <div className="h-64 w-full">
@@ -315,8 +370,8 @@ export function DashboardPage() {
                 <AreaChart data={data.trend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="consumptionGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                      <stop offset="5%" stopColor={chartMetric === 'savings' ? '#06b6d4' : '#10b981'} stopOpacity={0.4} />
+                      <stop offset="95%" stopColor={chartMetric === 'savings' ? '#06b6d4' : '#10b981'} stopOpacity={0.0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -338,12 +393,38 @@ export function DashboardPage() {
                       color: '#f8fafc',
                       fontSize: '12px',
                     }}
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload || !payload.length) return null;
+                      const point = payload[0].payload;
+                      const timeStr = new Date(label).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                      return (
+                        <div className="p-3 bg-slate-900 border border-slate-700 rounded-xl shadow-xl text-xs space-y-1 font-mono">
+                          <div className="text-slate-400 font-sans text-[11px] mb-1.5 border-b border-slate-800 pb-1">
+                            Interval Ending: <span className="text-white font-semibold">{timeStr}</span>
+                          </div>
+                          <div className="flex justify-between gap-4 text-emerald-400">
+                            <span>Actual Load:</span>
+                            <span>{Number(point.averagePowerKw || 0).toFixed(2)} kW ({Number(point.consumptionKwh || 0).toFixed(3)} kWh)</span>
+                          </div>
+                          {point.expectedKwh !== undefined && point.expectedKwh > 0 && (
+                            <div className="flex justify-between gap-4 text-amber-400">
+                              <span>Expected Baseline:</span>
+                              <span>{Number(point.expectedKwh).toFixed(3)} kWh</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between gap-4 text-cyan-400">
+                            <span>Energy Saved:</span>
+                            <span>{Number(point.savedKwh || 0).toFixed(3)} kWh</span>
+                          </div>
+                        </div>
+                      );
+                    }}
                   />
                   <Area
                     type="monotone"
-                    dataKey="consumptionKwh"
-                    name="Consumption (kWh)"
-                    stroke="#10b981"
+                    dataKey={chartMetric === 'power' ? 'averagePowerKw' : chartMetric === 'energy' ? 'consumptionKwh' : 'savedKwh'}
+                    name={chartMetric === 'power' ? 'Average Power (kW)' : chartMetric === 'energy' ? 'Consumption (kWh)' : 'Saved (kWh)'}
+                    stroke={chartMetric === 'savings' ? '#06b6d4' : '#10b981'}
                     strokeWidth={2}
                     fillOpacity={1}
                     fill="url(#consumptionGradient)"
@@ -479,7 +560,7 @@ export function DashboardPage() {
                 <div>
                   <div className="text-[10px] text-slate-400">Saved</div>
                   <div className="text-xs font-semibold text-emerald-400 mt-0.5 font-mono">
-                    {room.energySavedKwh.toFixed(1)}k
+                    {room.energySavedKwh.toFixed(2)} kWh
                   </div>
                 </div>
               </div>

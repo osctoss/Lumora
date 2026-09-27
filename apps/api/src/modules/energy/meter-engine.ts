@@ -4,6 +4,7 @@ import { logger } from '../../utils/logger.js';
 import { publish } from '../../websocket/event-publisher.js';
 import { EventTypes } from '@intellisave/shared';
 import type { DeviceDto } from '@intellisave/shared';
+import { simulationClock } from '../simulation/simulation-clock.js';
 
 export interface DeviceOperatingTracker {
   deviceId: string;
@@ -26,8 +27,11 @@ export interface BuildingMeterInterval {
   intervalStart: string;
   intervalEnd: string;
   energyKwh: number;
+  savedKwh: number;
+  expectedKwh: number;
   cumulativeKwh: number;
   averagePowerW: number;
+  averagePowerKw: number;
   roomBreakdown: Array<{
     roomId: string;
     energyKwh: number;
@@ -55,10 +59,13 @@ export class MeterEngine {
   public getOrCreateRoomMeter(roomId: string, initialSimTime?: Date): RoomMeterState {
     let state = this.roomMeters.get(roomId);
     if (!state) {
-      const startTime = initialSimTime || new Date();
+      const startTime = initialSimTime || simulationClock.getSimulatedTime();
+      // Snap currentIntervalStart to 5-minute clock boundary for multi-room sync
+      const intervalMs = this.INTERVAL_DURATION_MS;
+      const snappedStartMs = Math.floor(startTime.getTime() / intervalMs) * intervalMs;
       state = {
         roomId,
-        currentIntervalStart: new Date(startTime),
+        currentIntervalStart: new Date(snappedStartMs),
         accumulatedEnergyKwh: 0,
         cumulativeKwh: 0,
         powerSamples: [],
@@ -264,8 +271,8 @@ export class MeterEngine {
     intervals: RoomMeterInterval[];
   }> {
     const state = this.getOrCreateRoomMeter(roomId);
-    const startDate = start || new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const endDate = end || new Date();
+    const startDate = start || new Date(simulationClock.getSimulatedTime().getTime() - 24 * 60 * 60 * 1000);
+    const endDate = end || simulationClock.getSimulatedTime();
 
     // Try database first for complete persistence
     try {
@@ -274,8 +281,8 @@ export class MeterEngine {
         const dbReadings = await prisma.meterReading.findMany({
           where: {
             roomId,
-            intervalStart: { gte: startDate },
-            intervalEnd: { lte: endDate },
+            intervalEnd: { gt: startDate },
+            intervalStart: { lt: endDate },
           },
           orderBy: { intervalStart: 'asc' },
         });
@@ -313,7 +320,8 @@ export class MeterEngine {
     // In-memory fallback
     const filteredIntervals = state.history.filter((item) => {
       const itemStart = new Date(item.intervalStart).getTime();
-      return itemStart >= startDate.getTime() && itemStart <= endDate.getTime();
+      const itemEnd = new Date(item.intervalEnd).getTime();
+      return itemEnd > startDate.getTime() && itemStart < endDate.getTime();
     });
 
     const consumptionKwh = roundTo(
@@ -341,23 +349,35 @@ export class MeterEngine {
     intervals: BuildingMeterInterval[];
     roomBreakdown: Array<{ roomId: string; consumptionKwh: number }>;
   }> {
-    const startDate = start || new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const endDate = end || new Date();
+    const startDate = start || new Date(simulationClock.getSimulatedTime().getTime() - 24 * 60 * 60 * 1000);
+    const endDate = end || simulationClock.getSimulatedTime();
 
     // Try database first
     try {
       const { prisma, checkDatabaseConnection } = await import('../../db/prisma.js');
       if (await checkDatabaseConnection()) {
-        const dbReadings = await prisma.meterReading.findMany({
-          where: {
-            intervalStart: { gte: startDate },
-            intervalEnd: { lte: endDate },
-          },
-          orderBy: { intervalStart: 'asc' },
-        });
+        const [dbReadings, dbSessions] = await Promise.all([
+          prisma.meterReading.findMany({
+            where: {
+              intervalEnd: { gt: startDate },
+              intervalStart: { lt: endDate },
+            },
+            orderBy: { intervalStart: 'asc' },
+          }),
+          prisma.savingsSession.findMany({
+            where: {
+              startedAt: { lte: endDate },
+              OR: [
+                { endedAt: null },
+                { endedAt: { gte: startDate } },
+              ],
+            },
+          }),
+        ]);
 
         if (dbReadings.length > 0) {
-          // Group by intervalStart
+          // Snap each reading to 5-minute bucket so all rooms align perfectly
+          const bucketMs = this.INTERVAL_DURATION_MS;
           const intervalMap = new Map<string, {
             intervalStart: string;
             intervalEnd: string;
@@ -367,12 +387,13 @@ export class MeterEngine {
           }>();
 
           for (const reading of dbReadings) {
-            const key = reading.intervalStart.toISOString();
+            const bucketStartMs = Math.floor(reading.intervalStart.getTime() / bucketMs) * bucketMs;
+            const key = new Date(bucketStartMs).toISOString();
             let bucket = intervalMap.get(key);
             if (!bucket) {
               bucket = {
                 intervalStart: key,
-                intervalEnd: reading.intervalEnd.toISOString(),
+                intervalEnd: new Date(bucketStartMs + bucketMs).toISOString(),
                 energyKwh: 0,
                 powerSamples: [],
                 roomBreakdown: new Map(),
@@ -405,12 +426,32 @@ export class MeterEngine {
               energyKwh: roundTo(kwh, 4),
             }));
 
+            // Calculate savings in this 5-minute bucket (Correction §7, §48)
+            let bucketSaved = 0;
+            const bStart = new Date(bucket.intervalStart).getTime();
+            const bEnd = new Date(bucket.intervalEnd).getTime();
+            for (const s of dbSessions) {
+              const sStart = s.startedAt.getTime();
+              const sEnd = s.endedAt ? s.endedAt.getTime() : endDate.getTime();
+              if (sStart < bEnd && sEnd > bStart) {
+                const sDurationMin = Math.max(1, (sEnd - sStart) / 60000);
+                const overlapMin = Math.max(0, Math.min(bEnd, sEnd) - Math.max(bStart, sStart)) / 60000;
+                const fraction = Math.max(0, Math.min(1, overlapMin / sDurationMin));
+                bucketSaved += s.energySavedKwh * fraction;
+              }
+            }
+            const savedKwh = roundTo(bucketSaved, 4);
+            const expectedKwh = roundTo(bucketKwh + savedKwh, 4);
+
             intervals.push({
               intervalStart: bucket.intervalStart,
               intervalEnd: bucket.intervalEnd,
               energyKwh: bucketKwh,
+              savedKwh,
+              expectedKwh,
               cumulativeKwh: runCumulative,
               averagePowerW: avgPower,
+              averagePowerKw: roundTo(avgPower / 1000, 3),
               roomBreakdown: breakdown,
             });
           }
@@ -444,6 +485,7 @@ export class MeterEngine {
     }
 
     // In-memory fallback
+    const bucketMs = this.INTERVAL_DURATION_MS;
     const intervalMap = new Map<string, {
       intervalStart: string;
       intervalEnd: string;
@@ -457,13 +499,15 @@ export class MeterEngine {
     for (const [roomId, state] of this.roomMeters.entries()) {
       for (const item of state.history) {
         const itemStartTime = new Date(item.intervalStart).getTime();
-        if (itemStartTime >= startDate.getTime() && itemStartTime <= endDate.getTime()) {
-          const key = item.intervalStart;
+        const itemEndTime = new Date(item.intervalEnd).getTime();
+        if (itemEndTime > startDate.getTime() && itemStartTime < endDate.getTime()) {
+          const bucketStartMs = Math.floor(itemStartTime / bucketMs) * bucketMs;
+          const key = new Date(bucketStartMs).toISOString();
           let bucket = intervalMap.get(key);
           if (!bucket) {
             bucket = {
               intervalStart: key,
-              intervalEnd: item.intervalEnd,
+              intervalEnd: new Date(bucketStartMs + bucketMs).toISOString(),
               energyKwh: 0,
               powerSamples: [],
               roomBreakdown: new Map(),
@@ -501,8 +545,11 @@ export class MeterEngine {
         intervalStart: bucket.intervalStart,
         intervalEnd: bucket.intervalEnd,
         energyKwh: bucketKwh,
+        savedKwh: 0,
+        expectedKwh: bucketKwh,
         cumulativeKwh: runCumulative,
         averagePowerW: avgPower,
+        averagePowerKw: roundTo(avgPower / 1000, 3),
         roomBreakdown: breakdown,
       });
     }

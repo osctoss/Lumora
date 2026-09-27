@@ -584,7 +584,7 @@ export async function roomRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // GET /api/rooms/:id/dashboard — room dashboard data contract (Correction §54)
-  app.get<{ Params: { id: string }; Querystring: { start?: string; end?: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { start?: string; end?: string; timeRange?: string } }>(
     '/:id/dashboard',
     async (request, reply) => {
       const room = simulationState.getRoom(request.params.id);
@@ -592,8 +592,28 @@ export async function roomRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(404).send({ error: 'Room not found' });
       }
 
-      const startDate = request.query.start ? new Date(request.query.start) : new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const endDate = request.query.end ? new Date(request.query.end) : new Date();
+      const simNow = simulationClock.getSimulatedTime();
+      let startDate: Date;
+      let endDate: Date;
+
+      const timeRange = request.query.timeRange;
+      if (timeRange) {
+        let rangeMs = 24 * 60 * 60 * 1000;
+        if (timeRange === '1h') rangeMs = 1 * 60 * 60 * 1000;
+        else if (timeRange === '6h') rangeMs = 6 * 60 * 60 * 1000;
+        else if (timeRange === '12h') rangeMs = 12 * 60 * 60 * 1000;
+        else if (timeRange === '24h') rangeMs = 24 * 60 * 60 * 1000;
+        else if (timeRange === '7d') rangeMs = 7 * 24 * 60 * 60 * 1000;
+
+        endDate = simNow;
+        startDate = new Date(simNow.getTime() - rangeMs);
+      } else if (request.query.start && request.query.end) {
+        startDate = new Date(request.query.start);
+        endDate = new Date(request.query.end);
+      } else {
+        endDate = simNow;
+        startDate = new Date(simNow.getTime() - 24 * 60 * 60 * 1000);
+      }
 
       const roomEnergy = await meterEngine.getRoomEnergy(room.roomId, startDate, endDate);
       const devices = simulationState.getDevices(room.roomId);

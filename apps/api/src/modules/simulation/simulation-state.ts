@@ -269,6 +269,18 @@ class SimulationStateManager {
 
       if (!dbRooms || dbRooms.length === 0) return false;
 
+      // Synchronize simulation clock with latest meter reading if present in DB
+      try {
+        const latestReading = await prisma.meterReading.findFirst({
+          orderBy: { intervalEnd: 'desc' },
+        });
+        if (latestReading && latestReading.intervalEnd) {
+          simulationClock.setSimulatedTime(latestReading.intervalEnd);
+        }
+      } catch {
+        // Fallback to default start time
+      }
+
       for (const r of dbRooms) {
         const devices = new Map<string, DeviceDto>();
         for (const d of r.devices) {

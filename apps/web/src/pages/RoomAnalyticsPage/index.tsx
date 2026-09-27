@@ -104,15 +104,7 @@ export function RoomAnalyticsPage() {
   const fetchRoomData = async () => {
     if (!roomId) return;
     try {
-      const now = new Date();
-      let startMs = 24 * 60 * 60 * 1000;
-      if (timeRange === '1h') startMs = 1 * 60 * 60 * 1000;
-      else if (timeRange === '6h') startMs = 6 * 60 * 60 * 1000;
-      else if (timeRange === '12h') startMs = 12 * 60 * 60 * 1000;
-      else if (timeRange === '7d') startMs = 7 * 24 * 60 * 60 * 1000;
-
-      const startDate = new Date(now.getTime() - startMs).toISOString();
-      const res = await apiRequest<RoomDashboardData>(`/rooms/${roomId}/dashboard?start=${startDate}&end=${now.toISOString()}`);
+      const res = await apiRequest<RoomDashboardData>(`/rooms/${roomId}/dashboard?timeRange=${timeRange}`);
       setData(res);
     } catch (err) {
       console.error('Failed to load room dashboard:', err);
@@ -123,24 +115,21 @@ export function RoomAnalyticsPage() {
 
   useEffect(() => {
     fetchRoomData();
-    const interval = setInterval(fetchRoomData, 10000);
+    const interval = setInterval(fetchRoomData, 15000);
     return () => clearInterval(interval);
   }, [roomId, timeRange]);
 
   useEffect(() => {
     const socket = getSocket();
 
-    const onTick = () => fetchRoomData();
     const onMeter = () => fetchRoomData();
 
-    socket.on('SIMULATION_TICK', onTick);
     socket.on('METER_READING', onMeter);
 
     return () => {
-      socket.off('SIMULATION_TICK', onTick);
       socket.off('METER_READING', onMeter);
     };
-  }, [roomId]);
+  }, [roomId, timeRange]);
 
   const handleTogglePower = async () => {
     if (!data?.room) return;
