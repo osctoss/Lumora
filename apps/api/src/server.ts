@@ -29,6 +29,9 @@ async function start() {
         if (loaded) {
           logger.info(`📥 Loaded rooms, devices, sensors, and policies from PostgreSQL into digital twin`);
         }
+        const { eventLogService } = await import('./modules/events/event-log.service.js');
+        await eventLogService.initializeFromDb();
+        logger.info(`📜 Event log rolling buffer initialized (max 20 events)`);
       } else {
         logger.warn(`⚠️ PostgreSQL offline — running in high-performance in-memory simulation mode`);
       }

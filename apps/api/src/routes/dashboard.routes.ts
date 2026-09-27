@@ -111,7 +111,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
     // Active alerts & recent events
     const activeAlerts = alertService.getBuildingAlerts(true);
-    const recentEvents = eventLogService.getRecentEvents(15);
+    const recentEvents = eventLogService.getRecentEvents(20);
 
     return {
       range: {

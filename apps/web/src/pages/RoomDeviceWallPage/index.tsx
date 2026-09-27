@@ -23,6 +23,8 @@ import {
   Shield,
   Zap,
   Clock,
+  Cpu,
+  Plug,
 } from 'lucide-react';
 import { apiRequest } from '../../lib/api/client.js';
 import { getSocket } from '../../lib/websocket/socket.js';
@@ -201,13 +203,13 @@ export function RoomDeviceWallPage() {
     }
   };
 
-  const handleAddDevice = async (e: React.FormEvent) => {
+    const handleAddDevice = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await apiRequest(`/rooms/${roomId}/devices`, {
         method: 'POST',
         body: JSON.stringify({
-          name: newDevName.trim() || `${newDevType} Device`,
+          name: newDevName.trim() || `${newDevType === 'GENERIC' ? 'Other' : newDevType} Device`,
           type: newDevType,
           ratedPowerW: Number(newDevPower) || 50,
           compressorOffPowerW: Number(newDevStandby) || 0,
@@ -215,6 +217,7 @@ export function RoomDeviceWallPage() {
       });
       setIsAddDeviceOpen(false);
       setNewDevName('');
+      setNewDevStandby(0);
       await fetchVirtualRoom();
     } catch (err) {
       console.error('Failed to add device:', err);
@@ -519,11 +522,15 @@ export function RoomDeviceWallPage() {
                   }}
                   className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer relative overflow-hidden group ${
                     isOperating
-                      ? device.type === 'LED'
+                      ? device.type === 'LED' || device.type === 'TUBE_LIGHT'
                         ? 'bg-amber-500/10 border-amber-500/40 shadow-lg shadow-amber-500/10'
                         : device.type === 'AC'
                         ? 'bg-cyan-500/10 border-cyan-500/40 shadow-lg shadow-cyan-500/10'
-                        : 'bg-emerald-500/10 border-emerald-500/40 shadow-lg shadow-emerald-500/10'
+                        : device.type === 'FAN'
+                        ? 'bg-emerald-500/10 border-emerald-500/40 shadow-lg shadow-emerald-500/10'
+                        : device.type === 'FREEZER'
+                        ? 'bg-blue-500/10 border-blue-500/40 shadow-lg shadow-blue-500/10'
+                        : 'bg-purple-500/10 border-purple-500/40 shadow-lg shadow-purple-500/10'
                       : 'bg-slate-900/60 border-slate-800 opacity-70 hover:opacity-100 hover:border-slate-700'
                   }`}
                 >
@@ -532,11 +539,15 @@ export function RoomDeviceWallPage() {
                     <div
                       className={`p-3 rounded-xl transition-all ${
                         isOperating
-                          ? device.type === 'LED'
+                          ? device.type === 'LED' || device.type === 'TUBE_LIGHT'
                             ? 'bg-amber-500/20 text-amber-300 glow-cyan'
                             : device.type === 'FAN'
                             ? 'bg-emerald-500/20 text-emerald-300'
-                            : 'bg-cyan-500/20 text-cyan-300'
+                            : device.type === 'AC'
+                            ? 'bg-cyan-500/20 text-cyan-300'
+                            : device.type === 'FREEZER'
+                            ? 'bg-blue-500/20 text-blue-300'
+                            : 'bg-purple-500/20 text-purple-300'
                           : 'bg-slate-800 text-slate-500'
                       }`}
                     >
@@ -544,10 +555,12 @@ export function RoomDeviceWallPage() {
                         <Snowflake className={`w-6 h-6 ${isOperating ? 'animate-pulse' : ''}`} />
                       ) : device.type === 'FAN' ? (
                         <Fan className={`w-6 h-6 ${isOperating ? 'animate-spin' : ''}`} />
-                      ) : device.type === 'LED' ? (
+                      ) : device.type === 'LED' || device.type === 'TUBE_LIGHT' ? (
                         <Lightbulb className="w-6 h-6" />
+                      ) : device.type === 'FREEZER' ? (
+                        <Shield className="w-6 h-6" />
                       ) : (
-                        <Tv className="w-6 h-6" />
+                        <Cpu className="w-6 h-6" />
                       )}
                     </div>
 
@@ -636,7 +649,7 @@ export function RoomDeviceWallPage() {
       {/* Add Device Modal */}
       {isAddDeviceOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-white">Add Device to Room</h3>
               <button
@@ -652,32 +665,36 @@ export function RoomDeviceWallPage() {
                 <label className="block text-xs font-medium text-slate-300 mb-1.5">
                   Device Type
                 </label>
-                <div className="grid grid-cols-4 gap-2">
-                  {(['LED', 'FAN', 'AC', 'FREEZER'] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => {
-                        setNewDevType(t);
-                        if (t === 'LED') setNewDevPower(36);
-                        else if (t === 'FAN') setNewDevPower(65);
-                        else if (t === 'AC') {
-                          setNewDevPower(1800);
-                          setNewDevStandby(45);
-                        } else if (t === 'FREEZER') {
-                          setNewDevPower(350);
-                          setNewDevStandby(15);
-                        }
-                      }}
-                      className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
-                        newDevType === t
-                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  ))}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {[
+                    { id: 'LED', label: 'LED Light', icon: Lightbulb, power: 36, standby: 0 },
+                    { id: 'FAN', label: 'Ceiling Fan', icon: Fan, power: 65, standby: 0 },
+                    { id: 'AC', label: 'Air Cond.', icon: Snowflake, power: 1800, standby: 45 },
+                    { id: 'FREEZER', label: 'Freezer', icon: Shield, power: 350, standby: 15 },
+                    { id: 'GENERIC', label: 'Other', icon: Cpu, power: 100, standby: 5 },
+                  ].map((item) => {
+                    const Icon = item.icon;
+                    const isSelected = newDevType === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setNewDevType(item.id);
+                          setNewDevPower(item.power);
+                          setNewDevStandby(item.standby);
+                        }}
+                        className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1.5 ${
+                          isSelected
+                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-sm'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -688,7 +705,11 @@ export function RoomDeviceWallPage() {
                 <input
                   type="text"
                   required
-                  placeholder={`e.g. Master ${newDevType}`}
+                  placeholder={
+                    newDevType === 'GENERIC'
+                      ? 'e.g. Projector, Desktop PC, Water Dispenser'
+                      : `e.g. Master ${newDevType}`
+                  }
                   value={newDevName}
                   onChange={(e) => setNewDevName(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
@@ -709,10 +730,10 @@ export function RoomDeviceWallPage() {
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
-                {(newDevType === 'AC' || newDevType === 'FREEZER') && (
+                {(newDevType === 'AC' || newDevType === 'FREEZER' || newDevType === 'GENERIC') && (
                   <div>
                     <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                      Standby / Comp OFF (W)
+                      {newDevType === 'GENERIC' ? 'Standby / Idle (W)' : 'Standby / Comp OFF (W)'}
                     </label>
                     <input
                       type="number"
@@ -809,7 +830,9 @@ export function RoomDeviceWallPage() {
                     </span>
                   )}
                 </div>
-                <span className="text-xs text-slate-400 font-mono uppercase">{selectedDevice.type} Configuration</span>
+                <span className="text-xs text-slate-400 font-mono uppercase">
+                  {selectedDevice.type === 'GENERIC' ? 'OTHER DEVICE' : selectedDevice.type} Configuration
+                </span>
               </div>
               <button
                 onClick={() => setSelectedDevice(null)}
@@ -870,11 +893,13 @@ export function RoomDeviceWallPage() {
                 </div>
               )}
 
-              {/* Standby / Comp OFF power for AC/Freezer */}
-              {(selectedDevice.type === 'AC' || selectedDevice.type === 'FREEZER') && (
+              {/* Standby / Comp OFF power for AC/Freezer/Other */}
+              {(selectedDevice.type === 'AC' || selectedDevice.type === 'FREEZER' || selectedDevice.type === 'GENERIC') && (
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Compressor-OFF Rated Power (W)
+                    {selectedDevice.type === 'AC' || selectedDevice.type === 'FREEZER'
+                      ? 'Compressor-OFF Rated Power (W)'
+                      : 'Standby / Idle Power (W)'}
                   </label>
                   <input
                     type="number"

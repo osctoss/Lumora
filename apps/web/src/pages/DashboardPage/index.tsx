@@ -494,11 +494,14 @@ export function DashboardPage() {
           <div className="flex items-center space-x-2">
             <Clock className="w-4 h-4 text-emerald-400" />
             <h2 className="text-base font-semibold text-white">Live Event Feed</h2>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+              {data?.recentEvents?.length || 0}/20
+            </span>
           </div>
-          <span className="text-xs text-slate-400">WebSocket realtime stream</span>
+          <span className="text-xs text-slate-400">Rolling FIFO log (last 20 events retained)</span>
         </div>
 
-        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
           {data?.recentEvents && data.recentEvents.length > 0 ? (
             data.recentEvents.map((e) => (
               <div
