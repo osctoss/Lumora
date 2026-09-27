@@ -54,6 +54,7 @@ class SimulationStateManager {
       hvacDemand: 0,
       comfortScore: 95.0,
       occupancyState: 'VACANT',
+      occupancyStartedAt: null,
       vacancyStartedAt: null,
       vacancyDelaySeconds: 300,
       totalPowerKw: 0,
@@ -118,7 +119,19 @@ class SimulationStateManager {
   addDevice(roomId: string, device: DeviceDto | (Omit<DeviceDto, 'roomId'> & { roomId?: string })): boolean {
     const room = this.rooms.get(roomId);
     if (!room) return false;
-    const fullDevice: DeviceDto = { ...device, roomId };
+    const isProt = device.isProtected || device.type === 'FREEZER';
+    const defaultTurnOn = isProt ? undefined : (device.turnOnDelayMin !== undefined ? device.turnOnDelayMin : 0);
+    const defaultTurnOff = isProt
+      ? undefined
+      : (device.turnOffDelayMin !== undefined
+          ? device.turnOffDelayMin
+          : (device.type === 'AC' ? 10 : (device.type === 'LED' || device.type === 'TUBE_LIGHT' || device.type === 'FAN') ? 0 : 5));
+    const fullDevice: DeviceDto = {
+      turnOnDelayMin: defaultTurnOn,
+      turnOffDelayMin: defaultTurnOff,
+      ...device,
+      roomId,
+    };
     room.devices.set(device.id, fullDevice);
     return true;
   }

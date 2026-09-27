@@ -48,6 +48,8 @@ export interface DeviceDto {
   priority?: number;
   lastStateChange?: string;
   manualOverride?: boolean;
+  turnOnDelayMin?: number;
+  turnOffDelayMin?: number;
   policy?: {
     id?: string;
     deviceId?: string;

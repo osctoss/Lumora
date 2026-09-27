@@ -1,7 +1,7 @@
 import { simulationState } from '../simulation/simulation-state.js';
 import { simulationClock } from '../simulation/simulation-clock.js';
 import { publish } from '../../websocket/event-publisher.js';
-import { EventTypes } from '@intellisave/shared';
+import { EventTypes, DeviceState } from '@intellisave/shared';
 import { logger } from '../../utils/logger.js';
 
 import { roundTo } from '../../utils/math.js';
@@ -52,8 +52,21 @@ export class PolicyEngine {
 
     // ─── Occupancy Welcome Automation (INTELLISAVE_BUILD_SPEC §17.4) ───
     if (state.occupancyCount > 0) {
+      const occupancyStart = state.occupancyStartedAt ? new Date(state.occupancyStartedAt) : now;
+      const occupancyElapsedSec = Math.max(0, (now.getTime() - occupancyStart.getTime()) / 1000);
+      const occupancyElapsedMin = occupancyElapsedSec / 60;
+
       for (const device of devices) {
         if (device.manualOverride) continue; // Respect manual overrides
+        if (device.isProtected || device.type === 'FREEZER') continue; // Protected devices never auto-toggled
+
+        // turnOnDelayMin: 0 (Immediate), 2, 5, 10, 20, or -1 (Manual Only)
+        const onDelayMin = device.turnOnDelayMin !== undefined ? device.turnOnDelayMin : 0;
+        if (onDelayMin === -1) continue; // Manual only — do not turn on automatically
+
+        if (occupancyElapsedMin < onDelayMin) {
+          continue; // Timer hasn't elapsed yet
+        }
 
         // 1. LED / Lighting — turn ON automatically upon occupancy
         if (device.type === 'LED' || device.type === 'TUBE_LIGHT') {
@@ -68,7 +81,7 @@ export class PolicyEngine {
             actions.push({
               deviceId: device.id,
               action: 'TURN_ON',
-              reason: `Occupancy detected: ${device.name} turned ON automatically`,
+              reason: `Occupancy detected (${onDelayMin === 0 ? 'Immediate' : `${onDelayMin}m timer`}): ${device.name} turned ON`,
               powerSavedW: 0,
             });
 
@@ -77,7 +90,7 @@ export class PolicyEngine {
               previousState,
               newState: 'ON',
               source: 'AUTOMATION',
-              reason: 'Occupancy welcome policy: lighting turned ON',
+              reason: `Occupancy welcome policy: lighting turned ON after ${onDelayMin}m delay`,
               powerW: device.ratedPowerW,
             });
 
@@ -105,7 +118,7 @@ export class PolicyEngine {
             actions.push({
               deviceId: device.id,
               action: 'TURN_ON',
-              reason: `Occupancy detected: ${device.name} turned ON automatically`,
+              reason: `Occupancy detected (${onDelayMin === 0 ? 'Immediate' : `${onDelayMin}m timer`}): ${device.name} turned ON`,
               powerSavedW: 0,
             });
 
@@ -114,7 +127,7 @@ export class PolicyEngine {
               previousState,
               newState: 'ON',
               source: 'AUTOMATION',
-              reason: 'Occupancy welcome policy: fan turned ON',
+              reason: `Occupancy welcome policy: fan turned ON after ${onDelayMin}m delay`,
               powerW: fanPower,
             });
 
@@ -127,13 +140,59 @@ export class PolicyEngine {
           }
         }
 
-        // 3. AC — start cooling upon occupancy if room temp exceeds setpoint
+        // 3. AC — turns on per timer, compressor operates according to temperature vs setpoint
         else if (device.type === 'AC') {
-          const setpoint = state.acSetpointC || 24.0;
-          if ((!device.isPoweredOn || device.currentState === 'OFF') && state.temperatureC > setpoint) {
+          if (!device.isPoweredOn || device.currentState === 'OFF') {
+            const previousState = device.currentState;
+            const setpoint = state.acSetpointC || 24.0;
+            const compOn = state.temperatureC > setpoint;
+            const newState: DeviceState = compOn ? 'COMPRESSOR_ON' : 'COMPRESSOR_OFF';
+            const power = compOn ? device.ratedPowerW : (device.standbyPowerW > 0 ? device.standbyPowerW : 45.0);
+
+            simulationState.updateDevice(roomId, device.id, {
+              currentState: newState,
+              isPoweredOn: true,
+              currentPowerW: power,
+            });
+
+            actions.push({
+              deviceId: device.id,
+              action: 'TURN_ON',
+              reason: `Occupancy detected (${onDelayMin === 0 ? 'Immediate' : `${onDelayMin}m timer`}): ${device.name} powered ON (Compressor: ${compOn ? 'ON' : 'Standby'}, Room: ${state.temperatureC.toFixed(1)}°C, Setpoint: ${setpoint}°C)`,
+              powerSavedW: 0,
+            });
+
+            publish(EventTypes.DEVICE_STATE_CHANGED, roomId, {
+              deviceId: device.id,
+              previousState,
+              newState,
+              source: 'AUTOMATION',
+              reason: `Occupancy welcome policy: AC powered ON after ${onDelayMin}m delay`,
+              powerW: power,
+            });
+
+            publish(EventTypes.DEVICE_TURNED_ON, roomId, {
+              deviceId: device.id,
+              source: 'AUTOMATION',
+            });
+
+            if (compOn) {
+              publish(EventTypes.AC_COMPRESSOR_ON, roomId, {
+                deviceId: device.id,
+                source: 'AUTOMATION',
+              });
+            }
+
+            this.logActionEvent(roomId, device.id, 'TURN_ON', previousState, newState, 'Occupancy climate control');
+          }
+        }
+
+        // 4. Other controllable devices
+        else if (device.isControllable) {
+          if (!device.isPoweredOn || device.currentState === 'OFF') {
             const previousState = device.currentState;
             simulationState.updateDevice(roomId, device.id, {
-              currentState: 'COMPRESSOR_ON',
+              currentState: 'ON',
               isPoweredOn: true,
               currentPowerW: device.ratedPowerW,
             });
@@ -141,16 +200,16 @@ export class PolicyEngine {
             actions.push({
               deviceId: device.id,
               action: 'TURN_ON',
-              reason: `Occupancy detected: ${device.name} started cooling (Room: ${state.temperatureC.toFixed(1)}°C > Setpoint: ${setpoint}°C)`,
+              reason: `Occupancy detected: ${device.name} turned ON`,
               powerSavedW: 0,
             });
 
             publish(EventTypes.DEVICE_STATE_CHANGED, roomId, {
               deviceId: device.id,
               previousState,
-              newState: 'COMPRESSOR_ON',
+              newState: 'ON',
               source: 'AUTOMATION',
-              reason: 'Occupancy welcome policy: AC started cooling',
+              reason: `Occupancy welcome policy: ${device.name} turned ON`,
               powerW: device.ratedPowerW,
             });
 
@@ -159,12 +218,7 @@ export class PolicyEngine {
               source: 'AUTOMATION',
             });
 
-            publish(EventTypes.AC_COMPRESSOR_ON, roomId, {
-              deviceId: device.id,
-              source: 'AUTOMATION',
-            });
-
-            this.logActionEvent(roomId, device.id, 'TURN_ON', previousState, 'COMPRESSOR_ON', 'Occupancy climate control');
+            this.logActionEvent(roomId, device.id, 'TURN_ON', previousState, 'ON', 'Occupancy device turn ON');
           }
         }
       }
@@ -182,9 +236,22 @@ export class PolicyEngine {
           continue;
         }
 
-        // 1. LED / Lighting — turn OFF immediately
+        if (device.manualOverride) continue;
+
+        // Determine configured turnOffDelayMin (default: LED/Fan=0 [Immediate], AC=10m, Others=5m)
+        const defaultOffDelay =
+          device.type === 'AC'
+            ? this.config.acFullOffMinutes
+            : (device.type === 'LED' || device.type === 'TUBE_LIGHT' || device.type === 'FAN')
+            ? 0
+            : 5;
+        const offDelayMin = device.turnOffDelayMin !== undefined ? device.turnOffDelayMin : defaultOffDelay;
+
+        if (offDelayMin === -1) continue; // Manual only — do not shut off automatically
+
+        // 1. LED / Lighting — turn OFF per delay
         if (device.type === 'LED' || device.type === 'TUBE_LIGHT') {
-          if (vacancyElapsedSec >= this.config.lightingOffDelaySeconds && device.isPoweredOn && device.currentState !== 'OFF') {
+          if (vacancyElapsedMin >= offDelayMin && device.isPoweredOn && device.currentState !== 'OFF') {
             const powerBefore = device.currentPowerW;
             const previousState = device.currentState;
 
@@ -197,7 +264,7 @@ export class PolicyEngine {
             actions.push({
               deviceId: device.id,
               action: 'TURN_OFF',
-              reason: `Autonomous shutoff: ${device.name} turned OFF immediately on room vacancy`,
+              reason: `Autonomous shutoff: ${device.name} turned OFF (${offDelayMin === 0 ? 'immediately' : `after ${offDelayMin}m`} on room vacancy)`,
               powerSavedW: powerBefore,
             });
 
@@ -206,7 +273,7 @@ export class PolicyEngine {
               previousState,
               newState: 'OFF',
               source: 'AUTOMATION',
-              reason: 'Autonomous vacancy shutoff (immediate LED policy)',
+              reason: `Autonomous vacancy shutoff (${offDelayMin}m lighting policy)`,
               powerW: 0,
             });
 
@@ -215,13 +282,13 @@ export class PolicyEngine {
               source: 'AUTOMATION',
             });
 
-            this.logActionEvent(roomId, device.id, 'TURN_OFF', previousState, 'OFF', 'Immediate vacancy lighting shutoff');
+            this.logActionEvent(roomId, device.id, 'TURN_OFF', previousState, 'OFF', `Vacancy lighting shutoff (${offDelayMin}m)`);
           }
         }
 
-        // 2. Fan — turn OFF immediately
+        // 2. Fan — turn OFF per delay
         else if (device.type === 'FAN') {
-          if (vacancyElapsedSec >= this.config.fanOffDelaySeconds && device.isPoweredOn && device.currentState !== 'OFF') {
+          if (vacancyElapsedMin >= offDelayMin && device.isPoweredOn && device.currentState !== 'OFF') {
             const powerBefore = device.currentPowerW;
             const previousState = device.currentState;
 
@@ -234,7 +301,7 @@ export class PolicyEngine {
             actions.push({
               deviceId: device.id,
               action: 'TURN_OFF',
-              reason: `Autonomous shutoff: ${device.name} turned OFF immediately on room vacancy`,
+              reason: `Autonomous shutoff: ${device.name} turned OFF (${offDelayMin === 0 ? 'immediately' : `after ${offDelayMin}m`} on room vacancy)`,
               powerSavedW: powerBefore,
             });
 
@@ -243,7 +310,7 @@ export class PolicyEngine {
               previousState,
               newState: 'OFF',
               source: 'AUTOMATION',
-              reason: 'Autonomous vacancy shutoff (immediate Fan policy)',
+              reason: `Autonomous vacancy shutoff (${offDelayMin}m fan policy)`,
               powerW: 0,
             });
 
@@ -252,14 +319,14 @@ export class PolicyEngine {
               source: 'AUTOMATION',
             });
 
-            this.logActionEvent(roomId, device.id, 'TURN_OFF', previousState, 'OFF', 'Immediate vacancy fan shutoff');
+            this.logActionEvent(roomId, device.id, 'TURN_OFF', previousState, 'OFF', `Vacancy fan shutoff (${offDelayMin}m)`);
           }
         }
 
-        // 3. AC — multi-stage vacancy policy (Correction §42)
-        // Stage 2: Full OFF after 10 minutes of vacancy
+        // 3. AC — multi-stage vacancy policy:
+        // Full OFF after configured offDelayMin (e.g. 10m, 5m, 2m, Immediate)
         else if (device.type === 'AC') {
-          if (vacancyElapsedMin >= this.config.acFullOffMinutes && device.isPoweredOn && device.currentState !== 'OFF') {
+          if (vacancyElapsedMin >= offDelayMin && device.isPoweredOn && device.currentState !== 'OFF') {
             const powerBefore = device.currentPowerW;
             const previousState = device.currentState;
 
@@ -272,7 +339,7 @@ export class PolicyEngine {
             actions.push({
               deviceId: device.id,
               action: 'TURN_OFF',
-              reason: `Autonomous AC full shutoff after ${this.config.acFullOffMinutes} min vacancy`,
+              reason: `Autonomous AC full shutoff after ${offDelayMin === 0 ? 'immediate' : `${offDelayMin} min`} vacancy`,
               powerSavedW: powerBefore,
             });
 
@@ -281,7 +348,7 @@ export class PolicyEngine {
               previousState,
               newState: 'OFF',
               source: 'AUTOMATION',
-              reason: `Autonomous AC shutdown after ${this.config.acFullOffMinutes}m vacancy`,
+              reason: `Autonomous AC shutdown after ${offDelayMin}m vacancy`,
               powerW: 0,
             });
 
@@ -290,11 +357,12 @@ export class PolicyEngine {
               source: 'AUTOMATION',
             });
 
-            this.logActionEvent(roomId, device.id, 'TURN_OFF', previousState, 'OFF', `AC full off after ${this.config.acFullOffMinutes}m`);
+            this.logActionEvent(roomId, device.id, 'TURN_OFF', previousState, 'OFF', `AC full off after ${offDelayMin}m`);
           }
-          // Stage 1: Compressor OFF after 5 minutes of vacancy
+          // Pre-shutoff Stage: Compressor cuts off early (e.g. at half delay or 5 min) if offDelayMin > 0
           else if (
-            vacancyElapsedMin >= this.config.acCompressorOffMinutes &&
+            offDelayMin > 0 &&
+            vacancyElapsedMin >= Math.min(5, offDelayMin / 2) &&
             device.isPoweredOn &&
             device.currentState === 'COMPRESSOR_ON'
           ) {
@@ -307,17 +375,18 @@ export class PolicyEngine {
               currentPowerW: compOffPower,
             });
 
+            const compCutoffMin = Math.min(5, offDelayMin / 2);
             actions.push({
               deviceId: device.id,
               action: 'COMPRESSOR_OFF',
-              reason: `Autonomous AC compressor shutoff after ${this.config.acCompressorOffMinutes} min vacancy`,
+              reason: `Autonomous AC compressor shutoff after ${compCutoffMin} min vacancy`,
               powerSavedW: powerBefore - compOffPower,
             });
 
             publish(EventTypes.AC_COMPRESSOR_OFF, roomId, {
               deviceId: device.id,
               source: 'AUTOMATION',
-              reason: `AC compressor cut off after ${this.config.acCompressorOffMinutes}m vacancy`,
+              reason: `AC compressor cut off after ${compCutoffMin}m vacancy`,
             });
 
             publish(EventTypes.DEVICE_STATE_CHANGED, roomId, {
@@ -325,18 +394,18 @@ export class PolicyEngine {
               previousState: 'COMPRESSOR_ON',
               newState: 'COMPRESSOR_OFF',
               source: 'AUTOMATION',
-              reason: `Compressor cut off after ${this.config.acCompressorOffMinutes}m vacancy`,
+              reason: `Compressor cut off after ${compCutoffMin}m vacancy`,
               powerW: compOffPower,
             });
 
-            this.logActionEvent(roomId, device.id, 'COMPRESSOR_OFF', 'COMPRESSOR_ON', 'COMPRESSOR_OFF', `AC compressor cut off after ${this.config.acCompressorOffMinutes}m`);
+            this.logActionEvent(roomId, device.id, 'COMPRESSOR_OFF', 'COMPRESSOR_ON', 'COMPRESSOR_OFF', `AC compressor cut off after ${compCutoffMin}m`);
           }
         }
 
-        // 4. Other controllable devices — follow device policy (Correction §42)
+        // 4. Other controllable devices — follow device policy
         else if (device.isControllable) {
           const turnOff = device.policy ? device.policy.turnOffOnVacancy : true;
-          if (turnOff && device.isPoweredOn && device.currentState !== 'OFF') {
+          if (turnOff && vacancyElapsedMin >= offDelayMin && device.isPoweredOn && device.currentState !== 'OFF') {
             const powerBefore = device.currentPowerW;
             const previousState = device.currentState;
 
@@ -349,7 +418,7 @@ export class PolicyEngine {
             actions.push({
               deviceId: device.id,
               action: 'TURN_OFF',
-              reason: `Autonomous shutoff: ${device.name} turned OFF per device vacancy policy`,
+              reason: `Autonomous shutoff: ${device.name} turned OFF per device vacancy policy (${offDelayMin}m)`,
               powerSavedW: powerBefore - device.standbyPowerW,
             });
 
@@ -358,7 +427,7 @@ export class PolicyEngine {
               previousState,
               newState: 'OFF',
               source: 'AUTOMATION',
-              reason: 'Device vacancy policy shutoff',
+              reason: `Device vacancy policy shutoff (${offDelayMin}m)`,
               powerW: device.standbyPowerW,
             });
 

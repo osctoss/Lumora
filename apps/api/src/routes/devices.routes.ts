@@ -31,10 +31,12 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
       ratedPowerW?: number;
       standbyPowerW?: number;
       acSetpointC?: number;
+      turnOnDelayMin?: number;
+      turnOffDelayMin?: number;
     };
   }>('/:id', async (request, reply) => {
     const { id } = request.params;
-    const { roomId: reqRoomId, name, ratedPowerW, standbyPowerW, acSetpointC } = request.body || {};
+    const { roomId: reqRoomId, name, ratedPowerW, standbyPowerW, acSetpointC, turnOnDelayMin, turnOffDelayMin } = request.body || {};
 
     const found = findDeviceAndRoom(id, reqRoomId);
     if (!found) {
@@ -63,6 +65,12 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
     if (ratedPowerW !== undefined && ratedPowerW > 0) updates.ratedPowerW = ratedPowerW;
     if (standbyPowerW !== undefined && standbyPowerW >= 0) updates.standbyPowerW = standbyPowerW;
 
+    // Automation Delay options (Immediate, 2m, 5m, 10m, 20m, or -1 for manual)
+    if (!device.isProtected && device.type !== 'FREEZER') {
+      if (turnOnDelayMin !== undefined) updates.turnOnDelayMin = turnOnDelayMin;
+      if (turnOffDelayMin !== undefined) updates.turnOffDelayMin = turnOffDelayMin;
+    }
+
     const updated = simulationState.updateDevice(roomId, id, updates);
 
     publish(EventTypes.DEVICE_UPDATED, roomId, {
@@ -81,7 +89,9 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
             name: updates.name,
             ratedPowerW: updates.ratedPowerW,
             standbyPowerW: updates.standbyPowerW,
-          },
+            turnOnDelayMin: updates.turnOnDelayMin,
+            turnOffDelayMin: updates.turnOffDelayMin,
+          } as any,
         });
       } catch {
         // Non-blocking fallback

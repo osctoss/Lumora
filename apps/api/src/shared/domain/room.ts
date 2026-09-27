@@ -16,6 +16,7 @@ export interface RoomSimulationState {
   hvacDemand: number;
   comfortScore: number | null;
   occupancyState: OccupancyState;
+  occupancyStartedAt?: string | null;
   vacancyStartedAt: string | null;
   vacancyDelaySeconds: number;
   totalPowerKw: number;

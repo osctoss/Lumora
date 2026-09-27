@@ -22,6 +22,7 @@ import {
   Trash2,
   Shield,
   Zap,
+  Clock,
 } from 'lucide-react';
 import { apiRequest } from '../../lib/api/client.js';
 import { getSocket } from '../../lib/websocket/socket.js';
@@ -63,6 +64,8 @@ interface VirtualRoomData {
     standbyPowerW: number;
     isProtected: boolean;
     isControllable: boolean;
+    turnOnDelayMin?: number;
+    turnOffDelayMin?: number;
   }>;
 }
 
@@ -245,6 +248,8 @@ export function RoomDeviceWallPage() {
           ratedPowerW: selectedDevice.ratedPowerW,
           standbyPowerW: selectedDevice.standbyPowerW,
           acSetpointC: selectedDevice.type === 'AC' ? acSetpoint : undefined,
+          turnOnDelayMin: selectedDevice.turnOnDelayMin,
+          turnOffDelayMin: selectedDevice.turnOffDelayMin,
         }),
       });
       setSelectedDevice(null);
@@ -496,7 +501,18 @@ export function RoomDeviceWallPage() {
                 <div
                   key={device.id}
                   onClick={() => {
-                    setSelectedDevice(device);
+                    const isProt = device.isProtected || device.type === 'FREEZER';
+                    const defaultTurnOn = isProt ? undefined : (device.turnOnDelayMin !== undefined ? device.turnOnDelayMin : 0);
+                    const defaultTurnOff = isProt
+                      ? undefined
+                      : (device.turnOffDelayMin !== undefined
+                          ? device.turnOffDelayMin
+                          : (device.type === 'AC' ? 10 : (device.type === 'LED' || device.type === 'TUBE_LIGHT' || device.type === 'FAN') ? 0 : 5));
+                    setSelectedDevice({
+                      ...device,
+                      turnOnDelayMin: defaultTurnOn,
+                      turnOffDelayMin: defaultTurnOff,
+                    });
                     if (device.type === 'AC') {
                       setAcSetpoint(room?.acSetpointC || 24);
                     }
@@ -558,13 +574,22 @@ export function RoomDeviceWallPage() {
                     <div className="flex items-center space-x-1.5">
                       <h4 className="font-bold text-sm text-white truncate">{device.name}</h4>
                       {device.isProtected && (
-                        <span title="Protected Load">
+                        <span title="Protected Load - Always ON">
                           <Shield className="w-3.5 h-3.5 text-blue-400" />
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-slate-400 mt-0.5">
-                      {device.ratedPowerW}W rated
+                    <div className="flex items-center justify-between text-xs text-slate-400 mt-1">
+                      <span>{device.ratedPowerW}W rated</span>
+                      {device.isProtected || device.type === 'FREEZER' ? (
+                        <span className="text-[10px] text-amber-400/90 font-mono bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                          Protected
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-mono bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-750">
+                          ON: {device.turnOnDelayMin === -1 ? 'Man' : (device.turnOnDelayMin || 0) === 0 ? 'Imm' : `${device.turnOnDelayMin}m`} • OFF: {device.turnOffDelayMin === -1 ? 'Man' : (device.turnOffDelayMin ?? (device.type === 'AC' ? 10 : 0)) === 0 ? 'Imm' : `${device.turnOffDelayMin ?? (device.type === 'AC' ? 10 : 0)}m`}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -772,10 +797,18 @@ export function RoomDeviceWallPage() {
       {/* Device Configuration Modal (Correction §25, §26) */}
       {selectedDevice && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold text-white">{selectedDevice.name}</h3>
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-lg font-bold text-white">{selectedDevice.name}</h3>
+                  {(selectedDevice.isProtected || selectedDevice.type === 'FREEZER') && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30">
+                      <Shield className="w-3 h-3" />
+                      PROTECTED
+                    </span>
+                  )}
+                </div>
                 <span className="text-xs text-slate-400 font-mono uppercase">{selectedDevice.type} Configuration</span>
               </div>
               <button
@@ -852,6 +885,148 @@ export function RoomDeviceWallPage() {
                     }
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
                   />
+                </div>
+              )}
+
+              {/* Occupancy Automation Controls */}
+              {selectedDevice.isProtected || selectedDevice.type === 'FREEZER' ? (
+                /* Protected Load Banner */
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start space-x-3">
+                  <Shield className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-amber-300">Protected Continuous Load</p>
+                    <p className="text-[11px] text-amber-200/80 mt-1 leading-relaxed">
+                      This device is marked as a critical protected appliance (e.g. food/sample refrigeration). It cannot be automatically or manually turned OFF on occupancy or vacancy events to prevent spoilage or system disruption.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* Configurable Occupancy Delay Controls */
+                <div className="space-y-4 pt-3 border-t border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Occupancy Automation Timers</span>
+                    </span>
+                    <span className="text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      Smart Savings
+                    </span>
+                  </div>
+
+                  {/* Turn-ON Delay */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5 text-xs">
+                      <span className="font-medium text-slate-300 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        <span>Turn ON when Person Enters (0 &rarr; &gt;0)</span>
+                      </span>
+                      <span className="font-mono text-[11px] font-bold text-emerald-400">
+                        {selectedDevice.turnOnDelayMin === -1
+                          ? 'Manual Only'
+                          : (selectedDevice.turnOnDelayMin || 0) === 0
+                          ? 'Immediate'
+                          : `${selectedDevice.turnOnDelayMin} min`}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                      {[
+                        { label: 'Immediate', value: 0 },
+                        { label: '2 min', value: 2 },
+                        { label: '5 min', value: 5 },
+                        { label: '10 min', value: 10 },
+                        { label: '20 min', value: 20 },
+                        { label: 'Manual Only', value: -1 },
+                      ].map((opt) => {
+                        const active =
+                          (selectedDevice.turnOnDelayMin !== undefined ? selectedDevice.turnOnDelayMin : 0) === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setSelectedDevice({ ...selectedDevice, turnOnDelayMin: opt.value })}
+                            className={`py-2 px-1 text-center rounded-xl text-xs transition-all ${
+                              active
+                                ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/20 ring-1 ring-emerald-400'
+                                : 'bg-slate-950/80 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Turn-OFF Delay */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5 text-xs">
+                      <span className="font-medium text-slate-300 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                        <span>Turn OFF when Person Leaves (Room Vacant)</span>
+                      </span>
+                      <span className="font-mono text-[11px] font-bold text-amber-400">
+                        {selectedDevice.turnOffDelayMin === -1
+                          ? 'Manual Only'
+                          : (selectedDevice.turnOffDelayMin ?? (selectedDevice.type === 'AC' ? 10 : 0)) === 0
+                          ? 'Immediate'
+                          : `${selectedDevice.turnOffDelayMin ?? (selectedDevice.type === 'AC' ? 10 : 0)} min`}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                      {[
+                        { label: 'Immediate', value: 0 },
+                        { label: '2 min', value: 2 },
+                        { label: '5 min', value: 5 },
+                        { label: '10 min', value: 10 },
+                        { label: '20 min', value: 20 },
+                        { label: 'Manual Only', value: -1 },
+                      ].map((opt) => {
+                        const defaultOff =
+                          selectedDevice.type === 'AC'
+                            ? 10
+                            : selectedDevice.type === 'LED' ||
+                              selectedDevice.type === 'TUBE_LIGHT' ||
+                              selectedDevice.type === 'FAN'
+                            ? 0
+                            : 5;
+                        const currentVal =
+                          selectedDevice.turnOffDelayMin !== undefined ? selectedDevice.turnOffDelayMin : defaultOff;
+                        const active = currentVal === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setSelectedDevice({ ...selectedDevice, turnOffDelayMin: opt.value })}
+                            className={`py-2 px-1 text-center rounded-xl text-xs transition-all ${
+                              active
+                                ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20 ring-1 ring-amber-400'
+                                : 'bg-slate-950/80 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Informational Guidance Tip */}
+                  {selectedDevice.type === 'AC' ? (
+                    <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-800/40 text-cyan-200 text-[11px] leading-relaxed flex items-start gap-2.5">
+                      <Snowflake className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold text-cyan-300">Intelligent AC Modulation: </span>
+                        The AC powers on/off based on your selected delay timer. While powered ON, the compressor automatically cycles between cooling ({selectedDevice.ratedPowerW}W) and standby circulation ({selectedDevice.standbyPowerW || 45}W) to maintain {acSetpoint}°C.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-800/30 text-emerald-200/90 text-[11px] flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>
+                        <strong>Energy Saver Tip:</strong> Setting Turn-OFF to <em>Immediate</em> or <em>2 min</em> eliminates vampire power when the room is empty.
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 

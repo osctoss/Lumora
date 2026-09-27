@@ -34,6 +34,7 @@ export class OccupancyModel {
         transitioned = true;
         simulationState.updateRoomState(roomId, {
           occupancyState: newState,
+          occupancyStartedAt: now.toISOString(),
           vacancyStartedAt: null,
           occupancyCount: peopleCount,
           peoplePresent: activePeople.map((p) => p.id),
@@ -61,6 +62,7 @@ export class OccupancyModel {
 
         simulationState.updateRoomState(roomId, {
           occupancyState: newState,
+          occupancyStartedAt: null,
           vacancyStartedAt: vacancyStartIso,
           occupancyCount: 0,
           peoplePresent: [],

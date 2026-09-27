@@ -435,6 +435,8 @@ export async function roomRoutes(app: FastifyInstance): Promise<void> {
       const isProtected = type === 'FREEZER' || type === 'LAPTOP_PORT';
       const isControllable = !isProtected;
       const standbyPowerW = type === 'AC' || type === 'FREEZER' ? (compressorOffPowerW ?? ratedPowerW * 0.05) : 0;
+      const turnOnDelayMin = isProtected ? undefined : 0;
+      const turnOffDelayMin = isProtected ? undefined : (type === 'AC' ? 10 : (type === 'LED' || type === 'TUBE_LIGHT' || type === 'FAN') ? 0 : 5);
 
       const device = {
         id: deviceId,
@@ -451,6 +453,8 @@ export async function roomRoutes(app: FastifyInstance): Promise<void> {
         isControllable,
         priority: isProtected ? 10 : 1,
         lastStateChange: new Date().toISOString(),
+        turnOnDelayMin,
+        turnOffDelayMin,
         policy: {
           turnOffOnVacancy: !isProtected,
           allowPreCool: type === 'AC',
@@ -713,6 +717,8 @@ export async function roomRoutes(app: FastifyInstance): Promise<void> {
         standbyPowerW: d.standbyPowerW,
         isProtected: d.isProtected,
         isControllable: d.isControllable,
+        turnOnDelayMin: d.turnOnDelayMin,
+        turnOffDelayMin: d.turnOffDelayMin,
       })),
     };
   });

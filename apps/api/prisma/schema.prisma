@@ -263,6 +263,8 @@ model Device {
   isControllable      Boolean     @default(true)
   priority            Int         @default(1)
   lastStateChange     DateTime    @default(now())
+  turnOnDelayMin      Int?        @default(0)
+  turnOffDelayMin     Int?        @default(0)
 
   room             Room                    @relation(fields: [roomId], references: [id], onDelete: Cascade)
   catalog          DeviceCatalog?          @relation(fields: [catalogId], references: [id])
