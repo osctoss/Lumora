@@ -9,7 +9,7 @@
     "dev:web": "pnpm --filter @intellisave/web dev",
     "build": "pnpm --filter @intellisave/shared build && pnpm --parallel --filter @intellisave/api --filter @intellisave/web build",
     "build:api": "pnpm --filter @intellisave/shared build && pnpm --filter @intellisave/api prisma generate && pnpm --filter @intellisave/api build",
-    "build:web": "pnpm --filter @intellisave/web build && node -e \"const fs=require('fs'); fs.cpSync('apps/web/dist', 'dist', {recursive: true});\"",
+    "build:web": "node scripts/build-web.cjs",
     "lint": "pnpm --recursive lint",
     "format": "prettier --write \"**/*.{ts,tsx,json,md,css}\"",
     "db:generate": "pnpm --filter @intellisave/api prisma generate",
