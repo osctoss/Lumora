@@ -10,12 +10,12 @@ import {
   Radio,
   Sliders,
   Sparkles,
-  Zap,
 } from 'lucide-react';
 import { getSocket } from '../../lib/websocket/socket.js';
 import { apiRequest } from '../../lib/api/client.js';
 
 export function AppLayout() {
+  const navigate = useNavigate();
   const [isConnected, setIsConnected] = useState(false);
   const [simRunning, setSimRunning] = useState(true);
   const [simSpeed, setSimSpeed] = useState<number>(1);
@@ -119,11 +119,17 @@ export function AppLayout() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
       {/* Top Main Navbar */}
       <header className="sticky top-0 z-50 glass-panel border-b border-slate-800/80 px-4 lg:px-8 py-3 flex items-center justify-between">
-        {/* Brand */}
         <div className="flex items-center space-x-6">
-          <div className="flex items-center space-x-3 cursor-pointer">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-700 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-              <Zap className="w-5 h-5 text-white" />
+          <div
+            onClick={() => navigate('/dashboard')}
+            className="flex items-center space-x-3 cursor-pointer group"
+          >
+            <div className="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-emerald-500/20 border border-emerald-500/30 shrink-0 bg-slate-900/80 flex items-center justify-center p-0.5 group-hover:border-emerald-400/60 group-hover:scale-105 transition-all">
+              <img
+                src="/android-chrome-512x512.png"
+                alt="Lumora Logo"
+                className="w-full h-full object-contain rounded-lg"
+              />
             </div>
             <div>
               <div className="flex items-center space-x-2">

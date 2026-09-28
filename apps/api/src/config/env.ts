@@ -17,7 +17,7 @@ if (!process.env.DATABASE_URL) {
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  API_PORT: z.coerce.number().default(3001),
+  API_PORT: z.coerce.number().default(Number(process.env.PORT) || 3001),
   API_HOST: z.string().default('0.0.0.0'),
   DATABASE_URL: z.string().default('postgresql://intellisave:intellisave@localhost:5432/intellisave?schema=public'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
