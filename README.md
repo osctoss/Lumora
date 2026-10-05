@@ -285,8 +285,8 @@ Results: 29 PASSED, 0 FAILED
 
 ## 👥 Team Members
 
-- **Manish Patel**
-- **Lakshay Porwal**
+- [**Manish Patel**](https://github.com/osctoss)
+- [**Lakshay Porwal**](https://github.com/lakshay-porwal)
 
 ---
 
