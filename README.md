@@ -1,4 +1,4 @@
-# ⚡ Lumora — Autonomous Smart Building Energy & Comfort Optimization
+# <img src="apps/web/public/android-chrome-192x192.png" alt="Lumora Logo" width="36" height="36" align="center" /> Lumora — Autonomous Smart Building Energy & Comfort Optimization
 
 > **Autonomous Energy Efficiency Engine, Physics-Grounded Digital Twin & Counterfactual Ledger**  
 > Built for institutional buildings, university campuses, and commercial real estate to eliminate vacant power waste, protect occupant comfort, and mathematically prove energy savings.
@@ -196,15 +196,14 @@ pnpm db:push
 pnpm db:seed
 ```
 
-### 4. Running the Development Server
+### 4. Running the Development Server & Live Deployments
 ```bash
 # Starts both Backend API (port 3001) and Web UI (port 5173) concurrently
 pnpm dev
 ```
 
-- **Frontend Dashboard:** [http://localhost:5173](http://localhost:5173)
-- **API Health Check:** [http://localhost:3001/api/health](http://localhost:3001/api/health)
-- **Prisma Studio:** `pnpm db:studio` → [http://localhost:5555](http://localhost:5555)
+- **Frontend (Vercel):** [https://lumora-web-ivory.vercel.app](https://lumora-web-ivory.vercel.app)
+- **Backend API & WebSockets (Render):** [https://lumora-psi1.onrender.com](https://lumora-psi1.onrender.com)
 
 ---
 
@@ -232,7 +231,7 @@ Lumora is pre-configured for a zero-maintenance cloud architecture across **Neon
    - `DATABASE_URL`: *(Your Neon connection string from Step 1)*
    - `NODE_ENV`: `production`
    - `API_HOST`: `0.0.0.0`
-4. Copy your live API URL (e.g., `https://lumora-api.onrender.com`).
+4. Copy your live API URL (e.g., `https://lumora-psi1.onrender.com`).
 
 ### 3. Frontend UI (Vercel)
 1. Connect the repository to [Vercel](https://vercel.com).
@@ -242,8 +241,8 @@ Lumora is pre-configured for a zero-maintenance cloud architecture across **Neon
    - **Build Command**: `pnpm build`
    - **Output Directory**: `dist`
 3. Add Environment Variables:
-   - `VITE_API_URL`: `https://lumora-api.onrender.com`
-   - `VITE_WS_URL`: `https://lumora-api.onrender.com`
+   - `VITE_API_URL`: `https://lumora-psi1.onrender.com`
+   - `VITE_WS_URL`: `https://lumora-psi1.onrender.com`
 4. Deploy!
 
 ---
@@ -284,5 +283,20 @@ Results: 29 PASSED, 0 FAILED
 
 ---
 
+## 👥 Team Members
+
+- **Manish Patel**
+- **Lakshay Porwal**
+
+---
+
 ## 📄 License
 Distributed under the **MIT License** © 2026 Lumora Systems.
+
+---
+
+### ❤️ Made with Love
+
+Made with ❤️ for the *Schneider Electric Yuva Yodha Energy Tech Hackathon*.
+
+If you found this project useful or interesting, consider giving it a ⭐ on GitHub!
