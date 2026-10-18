@@ -2,6 +2,7 @@ import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { logger } from '../utils/logger.js';
 import { eventBus } from '../modules/events/event-bus.js';
+import { simulationEngine } from '../modules/simulation/simulation-engine.js';
 import type { EventType, IntelliSaveEvent } from '@intellisave/shared';
 
 let ioInstance: SocketIOServer | null = null;
@@ -15,7 +16,14 @@ export function initSocketServer(server: HttpServer): SocketIOServer {
   });
 
   io.on('connection', (socket: Socket) => {
-    logger.info(`🔌 Socket client connected: ${socket.id}`);
+    const activeClients = io.engine.clientsCount;
+    logger.info(`🔌 Socket client connected: ${socket.id} (total active: ${activeClients})`);
+
+    // Demand-driven simulation: Start/resume simulation when first client connects
+    if (activeClients === 1) {
+      logger.info('👤 First client connected — starting demand-driven simulation');
+      simulationEngine.start();
+    }
 
     // Join room subscription
     socket.on('subscribe:room', (roomId: string) => {
@@ -29,7 +37,14 @@ export function initSocketServer(server: HttpServer): SocketIOServer {
     });
 
     socket.on('disconnect', () => {
-      logger.info(`🔌 Socket client disconnected: ${socket.id}`);
+      const remainingClients = io.engine.clientsCount;
+      logger.info(`🔌 Socket client disconnected: ${socket.id} (remaining: ${remainingClients})`);
+
+      // If no clients left, stop simulation to save Neon & Render compute
+      if (remainingClients === 0) {
+        logger.info('🛑 No active clients remaining — stopping simulation to preserve Neon/Render compute');
+        simulationEngine.stop();
+      }
     });
   });
 

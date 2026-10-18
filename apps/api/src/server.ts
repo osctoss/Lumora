@@ -13,12 +13,9 @@ async function start() {
     await app.listen({ port: env.API_PORT, host: env.API_HOST });
     logger.info(`🚀 Lumora API running on http://localhost:${env.API_PORT}`);
 
-    // Initialize Socket.IO
+    // Initialize Socket.IO (simulation is demand-driven and starts when clients connect)
     initSocketServer(app.server);
-    logger.info(`⚡ Realtime Gateway attached to HTTP server`);
-
-    // Start Simulation Engine
-    simulationEngine.start();
+    logger.info(`⚡ Realtime Gateway attached to HTTP server (demand-driven simulation active)`);
 
     // Check DB status non-blocking & load database state
     checkDatabaseConnection().then(async (connected) => {
