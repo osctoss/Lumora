@@ -197,10 +197,10 @@ export class SimulationEngine {
           'SIMULATION',
         );
 
-        // ─── Step 19: Persist to PostgreSQL (every 5 minutes / 300 ticks) ─────────
+        // ─── Step 19: Persist to PostgreSQL (every 15 minutes / 900 ticks) ─────────
         if (
           simulationClock.getTicksElapsed() > 0 &&
-          simulationClock.getTicksElapsed() % 300 === 0
+          simulationClock.getTicksElapsed() % 900 === 0
         ) {
           import('../../db/prisma.js').then(async ({ prisma, checkDatabaseConnection }) => {
             const connected = await checkDatabaseConnection();

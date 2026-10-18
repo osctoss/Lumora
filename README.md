@@ -77,7 +77,7 @@ graph TB
     EventBus --> SocketServer
 
     %% Persistence
-    SimEngine -.->|"Periodic State Snapshots"| Prisma
+    SimEngine -.->|"Periodic Snapshots (Every 15m)"| Prisma
     EventBus -.->|"Logged Events & Telemetry"| Prisma
     Prisma --> Postgres
 ```
@@ -133,6 +133,7 @@ sequenceDiagram
   - **Multi-Stage Vacancy Shutdown:** Instant lighting/fan cutoff at $0\text{m}$, AC compressor cutoff at $5\text{m}$ (slashing power by 95%), and full HVAC cutoff at $10\text{m}$.
 - **🔒 Protected Equipment Safety Chain:** Critical appliances (e.g., biological research freezers, emergency lighting, high-priority workstations) are protected at both API and automation levels with hardware-grade lockout checks.
 - **📦 In-Memory Fallback:** The backend hosts an active in-memory digital twin capable of operating with zero latency even when the external database is momentarily offline.
+- **🌱 Serverless Compute Optimization & 15-Minute PostgreSQL Registration:** Real-time 1Hz physics and sensor telemetry are maintained in-memory and broadcast over WebSockets for instant reactivity. To prevent draining serverless credits (Neon & Render), persistent telemetry is registered into PostgreSQL on a **15-minute interval (900 ticks)**, and the simulation engine is demand-driven (pausing automatically when no dashboard clients are connected).
 
 ---
 
@@ -244,6 +245,14 @@ Lumora is pre-configured for a zero-maintenance cloud architecture across **Neon
    - `VITE_API_URL`: `https://lumora-psi1.onrender.com`
    - `VITE_WS_URL`: `https://lumora-psi1.onrender.com`
 4. Deploy!
+
+### 4. Compute Economics & 15-Minute PostgreSQL Registration
+
+Lumora is engineered to run seamlessly on serverless and budget PaaS (Neon + Render) without unexpected credit depletion:
+- **15-Minute PostgreSQL Registration:** High-frequency 1Hz physics and sensor telemetry are simulated and held in-memory for instant dashboard reactivity, but telemetry persistence to PostgreSQL (`RoomTelemetry`) is registered every **15 minutes (900 ticks)** instead of every second.
+- **Demand-Driven Simulation:** The simulation tick loop starts automatically when a user opens the dashboard (WebSocket connection established) and stops immediately when all browser sessions disconnect.
+- **Neon Auto-Suspend:** Neon scales compute to 0 CU after 5 minutes of idle time. The demand-driven design ensures zero database queries are dispatched when the dashboard is closed, allowing Neon to stay suspended.
+- **Render Idle Spin-Down:** With WebSocket connections cleanly severed and background loops stopped when inactive, Render's 15-minute free-tier inactivity timer triggers properly to spin down the container.
 
 ---
 
