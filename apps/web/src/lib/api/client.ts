@@ -1,4 +1,7 @@
-const envApiUrl = import.meta.env.VITE_API_URL;
+const rawApiUrl = import.meta.env.VITE_API_URL;
+const envApiUrl = rawApiUrl
+  ? (rawApiUrl.startsWith('http') ? rawApiUrl : `https://${rawApiUrl}`)
+  : '';
 const API_BASE = envApiUrl
   ? `${envApiUrl.replace(/\/+$/, '')}/api`
   : '/api';

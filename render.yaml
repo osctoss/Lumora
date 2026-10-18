@@ -1,0 +1,66 @@
+# Render Blueprint Specification for Lumora
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # ─── 1. Lumora Backend API (Fastify + Socket.IO Realtime Gateway) ───
+  - type: web
+    name: lumora-api
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: npm install -g pnpm && pnpm install --frozen-lockfile && pnpm build:api
+    startCommand: pnpm db:push && pnpm db:seed && node apps/api/dist/server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lumora-db
+          property: connectionString
+      - key: DEFAULT_SIMULATION_SPEED
+        value: "1"
+      - key: DEFAULT_TARIFF_INR_PER_KWH
+        value: "8"
+      - key: DEFAULT_CO2_FACTOR_KG_PER_KWH
+        value: "0.82"
+
+  # ─── 2. Lumora Frontend Web Dashboard (React + Vite SPA) ───
+  - type: web
+    runtime: static
+    name: lumora-web
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: npm install -g pnpm && pnpm install --frozen-lockfile && pnpm build:web
+    staticPublishPath: apps/web/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: lumora-api
+          property: host
+      - key: VITE_WS_URL
+        fromService:
+          type: web
+          name: lumora-api
+          property: host
+
+databases:
+  # ─── 3. Managed PostgreSQL Database ───
+  - name: lumora-db
+    databaseName: lumora
+    user: lumora
+    plan: free
+    region: oregon

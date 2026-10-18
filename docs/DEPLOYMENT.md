@@ -50,44 +50,80 @@ This guide covers three deployment strategies for the **Lumora** Smart Building 
 
 ---
 
-## Option 2: Cloud PaaS (Vercel + Render/Railway + Managed Postgres)
+## Option 2: Render Deployment (Blueprint or Manual Dashboard)
 
-### Step 1: PostgreSQL Database (Neon / Supabase / Railway)
-1. Create a free PostgreSQL instance on [Neon.tech](https://neon.tech) or [Supabase](https://supabase.com).
-2. Copy the pooled connection string `DATABASE_URL`.
+### Method A: 1-Click Render Blueprint (Recommended)
+Lumora includes a pre-configured `render.yaml` Blueprint at the repository root.
 
-### Step 2: Backend API (Render / Railway / Fly.io)
-1. Connect your GitHub repository to [Render](https://render.com) or [Railway](https://railway.app).
-2. Set service type to **Web Service** (Node.js).
-3. Configuration:
-   - **Root Directory**: `.`
-   - **Build Command**: `pnpm install --frozen-lockfile && pnpm --filter @intellisave/shared build && pnpm --filter @intellisave/api prisma generate && pnpm --filter @intellisave/api build`
-   - **Start Command**: `node apps/api/dist/server.js`
-4. Set Environment Variables:
-   - `DATABASE_URL`: *(Your Postgres connection string)*
+1. Push your repository to GitHub.
+2. In the [Render Dashboard](https://dashboard.render.com), click **New +** → **Blueprint**.
+3. Select your GitHub repository (`Lumora`).
+4. Render will detect `render.yaml` and preview the 3 services:
+   - `lumora-db` (PostgreSQL Database)
+   - `lumora-api` (Fastify Web Service)
+   - `lumora-web` (Static Site Frontend)
+5. Click **Apply**. Render will automatically provision the database, build the backend & frontend, run migrations/seeds, and link all environment variables.
+
+---
+
+### Method B: Manual Render Setup
+
+#### Component 1: Managed PostgreSQL
+1. In Render, click **New +** → **PostgreSQL**.
+2. Settings:
+   - **Name**: `lumora-db`
+   - **Database**: `lumora`
+   - **User**: `lumora`
+   - **Region**: Oregon (or nearest)
+   - **Plan**: Free
+3. Click **Create Database**. Copy the **Internal Database URL** (e.g., `postgresql://lumora:...@dpg-...-a:5432/lumora`).
+
+#### Component 2: Backend API (Web Service)
+1. In Render, click **New +** → **Web Service** → Connect your GitHub repo.
+2. Settings:
+   - **Name**: `lumora-api`
+   - **Language**: `Node`
+   - **Branch**: `main`
+   - **Root Directory**: `.` *(leave blank / dot)*
+   - **Build Command**:
+     ```bash
+     npm install -g pnpm && pnpm install --frozen-lockfile && pnpm build:api
+     ```
+   - **Start Command**:
+     ```bash
+     pnpm db:push && pnpm db:seed && node apps/api/dist/server.js
+     ```
+   - **Health Check Path**: `/api/health`
+3. Environment Variables:
    - `NODE_ENV`: `production`
-   - `API_PORT`: `3001`
+   - `NODE_VERSION`: `20.18.0`
    - `API_HOST`: `0.0.0.0`
-5. Deploy. You will receive a URL such as `https://lumora-api.onrender.com`.
+   - `DATABASE_URL`: *(Paste your Render PostgreSQL Internal Database URL)*
+   - `DEFAULT_SIMULATION_SPEED`: `1`
+   - `DEFAULT_TARIFF_INR_PER_KWH`: `8`
+   - `DEFAULT_CO2_FACTOR_KG_PER_KWH`: `0.82`
+4. Click **Create Web Service**. Wait for the build to complete and note your backend URL (e.g. `https://lumora-api.onrender.com`).
 
-### Step 3: Database Migration & Seeding
-From your local terminal connected to that remote database:
-```bash
-DATABASE_URL="your-remote-db-url" pnpm db:push
-DATABASE_URL="your-remote-db-url" pnpm db:seed
-```
-
-### Step 4: Frontend UI (Vercel / Netlify / Cloudflare Pages)
-1. Connect your repository to [Vercel](https://vercel.com).
-2. Set Framework Preset: **Vite**.
-3. Configuration:
-   - **Root Directory**: `apps/web`
-   - **Build Command**: `pnpm build`
-   - **Output Directory**: `dist`
-4. Environment Variables:
-   - `VITE_API_URL`: `https://lumora-api.onrender.com`
-   - `VITE_WS_URL`: `https://lumora-api.onrender.com`
-5. Deploy.
+#### Component 3: Frontend Web Dashboard (Static Site)
+1. In Render, click **New +** → **Static Site** → Connect your GitHub repo.
+2. Settings:
+   - **Name**: `lumora-web`
+   - **Branch**: `main`
+   - **Root Directory**: `.` *(leave blank / dot)*
+   - **Build Command**:
+     ```bash
+     npm install -g pnpm && pnpm install --frozen-lockfile && pnpm build:web
+     ```
+   - **Publish Directory**: `apps/web/dist`
+3. Environment Variables:
+   - `NODE_VERSION`: `20.18.0`
+   - `VITE_API_URL`: `https://lumora-api.onrender.com` *(Your Backend API URL from Step 2)*
+   - `VITE_WS_URL`: `https://lumora-api.onrender.com` *(Same URL for Socket.IO)*
+4. Redirects / Rewrites (Under the **Redirects/Rewrites** tab):
+   - **Type**: `Rewrite`
+   - **Source**: `/*`
+   - **Destination**: `/index.html`
+5. Click **Create Static Site**.
 
 ---
 
