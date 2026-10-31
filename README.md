@@ -1,16 +1,24 @@
-# <img src="apps/web/public/android-chrome-192x192.png" alt="Lumora Logo" width="36" height="36" align="center" /> Lumora — Autonomous Smart Building Energy & Comfort Optimization
+<div align="center">
 
-> **Autonomous Energy Efficiency Engine, Physics-Grounded Digital Twin & Counterfactual Ledger**  
-> Built for institutional buildings, university campuses, and commercial real estate to eliminate vacant power waste, protect occupant comfort, and mathematically prove energy savings.
+<img src="assets/icons/lumora_logo.svg" alt="Lumora Logo" width="180" height="180" />
 
+# Lumora — Autonomous Smart Building Energy & Comfort Optimization
+
+**Autonomous Energy Efficiency Engine, Physics-Grounded Digital Twin & Counterfactual Ledger**  
+*Built for institutional buildings, university campuses, and commercial real estate to eliminate vacant power waste, protect occupant comfort, and mathematically prove energy savings.*
+
+[![Demo](https://img.shields.io/badge/Live_Demo-Vercel-000000.svg?logo=vercel&logoColor=white)](https://lumora-web-ivory.vercel.app)
+[![API](https://img.shields.io/badge/Live_API-Render-46E3B7.svg?logo=render&logoColor=black)](https://lumora-psi1.onrender.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)](https://www.typescriptlang.org/)
-[![Fastify](https://img.shields.io/badge/Fastify-4.27-black.svg)](https://fastify.dev/)
-[![React](https://img.shields.io/badge/React-18.3-cyan.svg)](https://react.dev/)
-[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8.svg)](https://tailwindcss.com/)
-[![Prisma](https://img.shields.io/badge/Prisma-5.22-indigo.svg)](https://www.prisma.io/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://www.postgresql.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg?logo=typescript)](https://www.typescriptlang.org/)
+[![Fastify](https://img.shields.io/badge/Fastify-4.27-black.svg?logo=fastify)](https://fastify.dev/)
+[![React](https://img.shields.io/badge/React-18.3-cyan.svg?logo=react)](https://react.dev/)
+[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38bdf8.svg?logo=tailwindcss)](https://tailwindcss.com/)
+[![Prisma](https://img.shields.io/badge/Prisma-5.22-indigo.svg?logo=prisma)](https://www.prisma.io/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg?logo=postgresql)](https://www.postgresql.org/)
 [![Acceptance Tests](https://img.shields.io/badge/Acceptance%20Tests-29%2F29%20Passing-emerald.svg)](apps/api/src/test/acceptance.spec.ts)
+
+</div>
 
 ---
 
